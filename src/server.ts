@@ -24,12 +24,15 @@ registerExactAvmScheme(server);
 // still listed individually in the catalog, this just turns discovery on).
 server.registerExtension(bazaarResourceServerExtension);
 
-function usdcPrice(amountMicroUsdc: string) {
+// NOTE: `price` here is a DECIMAL USDC amount (dollars), e.g. "0.01" = one cent.
+// The x402-avm middleware multiplies this by USDC's 6 decimals to get the on-chain
+// micro-USDC amount. Passing "10000" would bill 10,000 USDC, not $0.01.
+function usdcPrice(priceUsdc: string) {
   return {
     scheme: "exact" as const,
     network: NETWORK as `${string}:${string}`,
     payTo: PAY_TO,
-    price: amountMicroUsdc, // amount in USDC's smallest unit (6 decimals)
+    price: priceUsdc, // decimal USDC (dollars), converted to micro-USDC by the SDK
     extra: {
       asset: USDC_ASA_ID,
       tag: CHALLENGE_TAG,
@@ -89,17 +92,17 @@ const walletRiskDiscovery = declareDiscoveryExtension({
 
 const routes = {
   "POST /api/inference": {
-    accepts: usdcPrice("10000"), // $0.01
+    accepts: usdcPrice("0.01"), // $0.01
     description: "Pay-per-prompt LLM inference: send a prompt, receive a generated text response.",
     extensions: inferenceDiscovery,
   },
   "POST /api/summarize": {
-    accepts: usdcPrice("20000"), // $0.02
+    accepts: usdcPrice("0.02"), // $0.02
     description: "Text summarization: send raw text, receive a concise summary.",
     extensions: summarizeDiscovery,
   },
   "GET /api/wallet-risk/:address": {
-    accepts: usdcPrice("15000"), // $0.015
+    accepts: usdcPrice("0.015"), // $0.015
     description: "Wallet risk scoring: given an Algorand address, returns a risk score and level.",
     extensions: walletRiskDiscovery,
   },
@@ -134,7 +137,7 @@ app.post("/api/inference", async (req, res) => {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
+        model: "claude-haiku-4-5",
         max_tokens: 500,
         messages: [{ role: "user", content: prompt }],
       }),

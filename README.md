@@ -43,8 +43,20 @@ Fill in `.env`:
 npm run dev
 ```
 
-Test it end to end with an x402-compatible client before touching mainnet. Testnet
-activity does not count toward the leaderboard, it's for validation only.
+Then, in a second shell, drive the full x402 flow with the bundled client:
+
+```bash
+npm run test-client                      # POST /api/inference (default)
+npm run test-client -- /api/summarize    # POST /api/summarize
+npm run test-client -- /api/wallet-risk/<ALGO_ADDRESS>
+```
+
+The client reads a paying wallet from `.env` (`AVM_CLIENT_MNEMONIC` — a SECOND
+testnet account, funded with test ALGO + USDC and opted into USDC ASA `10458941`),
+receives the 402, signs a real USDC payment, retries with the `PAYMENT-SIGNATURE`
+header, and prints the paid response plus the settlement result.
+
+Testnet activity does not count toward the leaderboard, it's for validation only.
 
 ## Go live (mainnet)
 
@@ -71,6 +83,10 @@ activity does not count toward the leaderboard, it's for validation only.
 To add a fourth endpoint: add one more entry to the `routes` object in `server.ts` with
 its own price and description, keep `PAY_TO` unchanged, and add its route handler below.
 That's the entire pattern, per the challenge's Composite Entry setup.
+
+> **Pricing is in decimal USDC (dollars), not micro-USDC.** `usdcPrice("0.01")` bills
+> one cent; the SDK multiplies by USDC's 6 decimals internally. Passing `"10000"` would
+> bill 10,000 USDC. Always express the price as dollars.
 
 ## Before you go further
 
