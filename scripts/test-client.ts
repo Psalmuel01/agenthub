@@ -101,8 +101,10 @@ async function main() {
   const paymentRequired = http.getPaymentRequiredResponse((name) => first.headers.get(name));
   const accepts = (paymentRequired as any).accepts?.[0];
   if (accepts) {
+    // Server sends the atomic amount as `amount`; older builds used `price`.
+    const amt = accepts.amount ?? accepts.price;
     console.log(
-      `  quote: pay ${accepts.price} (asset ${accepts.extra?.asset ?? "?"}) ` +
+      `  quote: pay ${amt} base units (asset ${accepts.extra?.asset ?? accepts.asset ?? "?"}) ` +
         `to ${accepts.payTo} on ${accepts.network}`,
     );
   }

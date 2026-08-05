@@ -8,7 +8,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "test-client": "ts-node-dev --transpile-only scripts/test-client.ts"
+    "test-client": "ts-node-dev --transpile-only scripts/test-client.ts",
+    "optin-usdc": "ts-node-dev --transpile-only scripts/optin-usdc.ts"
   },
   "dependencies": {
     "@x402-avm/avm": "^2.6.1",
