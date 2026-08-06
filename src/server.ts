@@ -6,7 +6,13 @@ import {
   bazaarResourceServerExtension,
   declareDiscoveryExtension,
 } from "@x402-avm/extensions";
-import { NETWORK, USDC_ASA_ID, PAY_TO, FACILITATOR_URL, PORT, CHALLENGE_TAG } from "./config";
+import { NETWORK, USDC_ASA_ID, PAY_TO, FACILITATOR_URL, PORT, CHALLENGE_TAG, HAS_ANTHROPIC_KEY } from "./config";
+import { anthropicComplete, AnthropicError } from "./services/anthropic";
+import {
+  scoreWallet,
+  InvalidAddressError,
+  WalletRiskError,
+} from "./services/wallet-risk";
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));
@@ -66,6 +72,8 @@ const summarizeDiscovery = declareDiscoveryExtension({
   inputSchema: {
     properties: {
       text: { type: "string", maxLength: 50000, description: "Raw text to summarize" },
+      maxWords: { type: "number", minimum: 10, maximum: 1000, description: "Optional max words for the summary" },
+      style: { type: "string", enum: ["concise", "bullets", "detailed"], description: "Optional summary style" },
     },
     required: ["text"],
   },
@@ -86,7 +94,19 @@ const walletRiskDiscovery = declareDiscoveryExtension({
     required: ["address"],
   },
   output: {
-    example: { address: "ALGORAND_ADDRESS_58_CHARS", riskScore: 12, riskLevel: "low" },
+    example: {
+      address: "ALGORAND_ADDRESS_58_CHARS",
+      riskScore: 42,
+      riskLevel: "medium",
+      signals: {
+        accountAgeDays: 412,
+        txCount: 1930,
+        balanceAlgo: 15.2,
+        usdcOptedIn: true,
+        distinctCounterparties: 24,
+        rekeyed: false,
+      },
+    },
   },
 });
 
@@ -98,12 +118,16 @@ const routes = {
   },
   "POST /api/summarize": {
     accepts: usdcPrice("0.02"), // $0.02
-    description: "Text summarization: send raw text, receive a concise summary.",
+    description:
+      "Text summarization: send raw text (optionally with maxWords and style), receive a concise summary powered by Claude Haiku 4.5.",
     extensions: summarizeDiscovery,
   },
-  "GET /api/wallet-risk/:address": {
+  // Route-key path params use the middleware's [bracket] syntax (NOT Express ":param").
+  // The Express handler below still registers the route as "/api/wallet-risk/:address".
+  "GET /api/wallet-risk/[address]": {
     accepts: usdcPrice("0.015"), // $0.015
-    description: "Wallet risk scoring: given an Algorand address, returns a risk score and level.",
+    description:
+      "Wallet risk scoring: analyzes on-chain history (age, activity, balance, USDC opt-in, counterparty diversity, rekey status) to produce an explainable 0–100 risk score.",
     extensions: walletRiskDiscovery,
   },
 };
@@ -120,68 +144,64 @@ app.post("/api/inference", async (req, res) => {
     return res.status(400).json({ error: "Missing 'prompt' string in request body." });
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    // Placeholder response so the endpoint is testable before wiring a real model call.
-    return res.json({
-      response: `[stub response — set ANTHROPIC_API_KEY to call a real model] You asked: ${prompt}`,
-    });
-  }
-
   try {
-    const apiResp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5",
-        max_tokens: 500,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    const data: any = await apiResp.json();
-    const text = (data.content || [])
-      .filter((block: any) => block.type === "text")
-      .map((block: any) => block.text)
-      .join("\n");
-    res.json({ response: text || "(no text returned)" });
-  } catch (err: any) {
-    res.status(502).json({ error: "Upstream inference call failed", detail: String(err) });
+    const response = await anthropicComplete({ user: prompt });
+    res.json({ response });
+  } catch (err) {
+    if (err instanceof AnthropicError) {
+      return res.status(502).json({ error: "Upstream inference call failed", detail: err.message });
+    }
+    throw err;
   }
 });
 
-app.post("/api/summarize", (req, res) => {
-  const { text } = req.body || {};
+app.post("/api/summarize", async (req, res) => {
+  const { text, maxWords, style } = req.body || {};
   if (!text || typeof text !== "string") {
     return res.status(400).json({ error: "Missing 'text' string in request body." });
   }
-  // Placeholder: naive first-N-sentence extraction. Replace with a real
-  // summarization call (e.g. the inference route above, or your own model).
-  const sentences = text.split(/(?<=[.!?])\s+/).filter(Boolean);
-  const summary = sentences.slice(0, 2).join(" ") || text.slice(0, 200);
-  res.json({ summary });
-});
-
-app.get("/api/wallet-risk/:address", (req, res) => {
-  const { address } = req.params;
-  // Placeholder scoring logic. Replace with real on-chain analysis
-  // (transaction history, counterparties, contract interactions, etc.).
-  const riskScore = Math.abs(hashCode(address)) % 100;
-  const riskLevel = riskScore < 30 ? "low" : riskScore < 70 ? "medium" : "high";
-  res.json({ address, riskScore, riskLevel });
-});
-
-function hashCode(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash |= 0;
+  if (text.length > 50_000) {
+    return res.status(400).json({ error: "Text too long; max 50,000 characters." });
   }
-  return hash;
-}
+
+  let systemPrompt =
+    "You are a concise text summarizer. Summarize the user's text while preserving key facts, intent, and detail. Return only the summary — no preamble, no commentary.";
+  if (maxWords !== undefined && Number.isFinite(maxWords) && maxWords > 0) {
+    systemPrompt += ` Keep the summary to at most ${maxWords} words.`;
+  }
+  if (style === "bullets") {
+    systemPrompt += " Use bullet points.";
+  } else if (style === "detailed") {
+    systemPrompt += " Include more detail than a typical summary.";
+  } else {
+    systemPrompt += " Keep it concise.";
+  }
+
+  try {
+    const summary = await anthropicComplete({ system: systemPrompt, user: text, maxTokens: 800 });
+    res.json({ summary });
+  } catch (err) {
+    if (err instanceof AnthropicError) {
+      return res.status(502).json({ error: "Upstream summarization call failed", detail: err.message });
+    }
+    throw err;
+  }
+});
+
+app.get("/api/wallet-risk/:address", async (req, res) => {
+  try {
+    const result = await scoreWallet(req.params.address);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof InvalidAddressError) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err instanceof WalletRiskError) {
+      return res.status(502).json({ error: "Wallet risk analysis failed", detail: err.message });
+    }
+    throw err;
+  }
+});
 
 // Public, unprotected routes
 app.get("/", (_req, res) => {
@@ -200,4 +220,7 @@ app.listen(PORT, () => {
   console.log(`AgentHub resource server running on http://localhost:${PORT}`);
   console.log(`Network: ${NETWORK}`);
   console.log(`Pay-to address: ${PAY_TO}`);
+  if (!HAS_ANTHROPIC_KEY) {
+    console.warn("⚠  ANTHROPIC_API_KEY is not set — /api/inference and /api/summarize will return 502");
+  }
 });
