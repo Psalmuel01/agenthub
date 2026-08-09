@@ -9,6 +9,9 @@ const INDEXER_MAINNET_URL = "https://mainnet-idx.algonode.cloud";
 
 const isMainnet = (process.env.X402_NETWORK || "testnet").toLowerCase() === "mainnet";
 
+/** True when serving real mainnet payments. Exported so the server can warn loudly otherwise. */
+export const IS_MAINNET = isMainnet;
+
 export const NETWORK = isMainnet ? ALGORAND_MAINNET_CAIP2 : ALGORAND_TESTNET_CAIP2;
 export const USDC_ASA_ID = isMainnet ? USDC_MAINNET_ASA_ID : USDC_TESTNET_ASA_ID;
 

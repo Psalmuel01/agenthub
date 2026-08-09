@@ -15,6 +15,7 @@ import {
   CHALLENGE_TAG,
   HAS_ANTHROPIC_KEY,
   PUBLIC_BASE_URL,
+  IS_MAINNET,
 } from "./config";
 import { renderLandingPage, renderLlmsTxt } from "./landing";
 import { anthropicComplete, AnthropicError } from "./services/anthropic";
@@ -352,8 +353,17 @@ app.get("/api/health", (_req, res) => {
 
 app.listen(PORT, () => {
   console.log(`AgentHub resource server running on http://localhost:${PORT}`);
-  console.log(`Network: ${NETWORK}`);
+  console.log(`Network: ${IS_MAINNET ? "MAINNET" : "TESTNET"} (${NETWORK})`);
+  console.log(`USDC ASA: ${USDC_ASA_ID}`);
   console.log(`Pay-to address: ${PAY_TO}`);
+  if (!IS_MAINNET) {
+    // Easy to miss in a hosted deploy: X402_NETWORK defaults to testnet, and
+    // testnet settlements do not count toward the competition leaderboard.
+    console.warn(
+      "⚠  Running on TESTNET — payments here are not real and do not count. " +
+        "Set X402_NETWORK=mainnet for production.",
+    );
+  }
   if (!HAS_ANTHROPIC_KEY) {
     console.warn("⚠  ANTHROPIC_API_KEY is not set — /api/inference and /api/summarize will return 502");
   }
