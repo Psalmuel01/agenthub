@@ -1,5 +1,5 @@
 {
-  "name": "@agenthub/tools",
+  "name": "agenthub-algo",
   "version": "0.1.0",
   "description": "Pay-per-call Algorand wallet risk scoring, transaction explanation, and LLM tools for AI agents. No API key or account — agents pay per request in USDC over x402.",
   "keywords": [
@@ -20,7 +20,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/Psalmuel01/agenthub.git",
-    "directory": "packages/agenthub-tools"
+    "directory": "packages/agenthub-algo"
   },
   "homepage": "https://agenthub-x1jx.onrender.com",
   "main": "dist/index.js",

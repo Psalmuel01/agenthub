@@ -1,16 +1,16 @@
-# @agenthub/tools
+# agenthub-algo
 
 Pay-per-call Algorand and LLM tools for AI agents. **No API key, no account, no
 subscription** — your agent pays per request in USDC over [x402](https://docs.x402.org).
 
 ```bash
-npm install @agenthub/tools
+npm install agenthub-algo
 ```
 
 ## Quick start
 
 ```ts
-import { AgentHub } from "@agenthub/tools";
+import { AgentHub } from "agenthub-algo";
 
 const hub = new AgentHub({ mnemonic: process.env.ALGORAND_MNEMONIC! });
 
@@ -30,7 +30,7 @@ opted in to USDC. At $0.015 a call, $1 is ~66 lookups.
 
 ```ts
 import Anthropic from "@anthropic-ai/sdk";
-import { AgentHub, anthropicTools, executeTool } from "@agenthub/tools";
+import { AgentHub, anthropicTools, executeTool } from "agenthub-algo";
 
 const hub = new AgentHub({ mnemonic: process.env.ALGORAND_MNEMONIC! });
 const client = new Anthropic();
@@ -93,7 +93,7 @@ than just "called an application."
 Failures throw `AgentHubError` with a `status`:
 
 ```ts
-import { AgentHubError } from "@agenthub/tools";
+import { AgentHubError } from "agenthub-algo";
 
 try {
   await hub.walletRisk("BOGUS");

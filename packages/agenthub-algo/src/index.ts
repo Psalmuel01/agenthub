@@ -1,5 +1,5 @@
 /**
- * @agenthub/tools — pay-per-call Algorand + LLM tools for AI agents.
+ * agenthub-algo — pay-per-call Algorand + LLM tools for AI agents.
  *
  * Two ways in:
  *   1. Call the API directly:  new AgentHub({ mnemonic }).walletRisk(addr)

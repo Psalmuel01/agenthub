@@ -1,6 +1,6 @@
 # AgentHub
 
-**Three pay-per-call tools your AI agent can use — no signup, no API key, no subscription.**
+**Four pay-per-call tools your AI agent can use — no signup, no API key, no subscription.**
 
 Live on Algorand mainnet: **https://agenthub-x1jx.onrender.com**
 
@@ -20,11 +20,11 @@ Machine-readable summary for agents: [`/llms.txt`](https://agenthub-x1jx.onrende
 ## Fastest integration: the npm package
 
 ```bash
-npm install @agenthub/tools
+npm install agenthub-algo
 ```
 
 ```ts
-import { AgentHub } from "@agenthub/tools";
+import { AgentHub } from "agenthub-algo";
 
 const hub = new AgentHub({ mnemonic: process.env.ALGORAND_MNEMONIC! });
 const risk = await hub.walletRisk(address);
@@ -33,7 +33,7 @@ if (risk.riskScore > 60) throw new Error("counterparty too risky");
 
 The 402 handshake, signing, and settlement happen inside the call. It also ships
 ready-made tool definitions for the Anthropic and OpenAI SDKs — see
-[`packages/agenthub-tools`](packages/agenthub-tools).
+[`packages/agenthub-algo`](packages/agenthub-algo).
 
 ---
 
@@ -170,6 +170,7 @@ Drive the full x402 flow against a running server:
 
 ```bash
 npm run test-client -- /api/wallet-risk/<ALGO_ADDRESS>
+npm run test-client -- /api/explain-tx/<TXID>
 npm run test-client -- /api/inference
 npm run test-client -- /api/summarize
 ```
