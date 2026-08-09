@@ -6,7 +6,17 @@ import {
   bazaarResourceServerExtension,
   declareDiscoveryExtension,
 } from "@x402-avm/extensions";
-import { NETWORK, USDC_ASA_ID, PAY_TO, FACILITATOR_URL, PORT, CHALLENGE_TAG, HAS_ANTHROPIC_KEY } from "./config";
+import {
+  NETWORK,
+  USDC_ASA_ID,
+  PAY_TO,
+  FACILITATOR_URL,
+  PORT,
+  CHALLENGE_TAG,
+  HAS_ANTHROPIC_KEY,
+  PUBLIC_BASE_URL,
+} from "./config";
+import { renderLandingPage, renderLlmsTxt } from "./landing";
 import { anthropicComplete, AnthropicError } from "./services/anthropic";
 import {
   scoreWallet,
@@ -59,7 +69,10 @@ const inferenceDiscovery = declareDiscoveryExtension({
     required: ["prompt"],
   },
   output: {
-    example: { response: "Hamlet, prince of Denmark, seeks revenge for his father's murder..." },
+    example: {
+      response: "Hamlet, prince of Denmark, seeks revenge for his father's murder...",
+      truncated: false,
+    },
   },
 });
 
@@ -78,7 +91,7 @@ const summarizeDiscovery = declareDiscoveryExtension({
     required: ["text"],
   },
   output: {
-    example: { summary: "A concise summary of the submitted text." },
+    example: { summary: "A concise summary of the submitted text.", truncated: false },
   },
 });
 
@@ -113,13 +126,20 @@ const walletRiskDiscovery = declareDiscoveryExtension({
 const routes = {
   "POST /api/inference": {
     accepts: usdcPrice("0.01"), // $0.01
-    description: "Pay-per-prompt LLM inference: send a prompt, receive a generated text response.",
+    description:
+      "LLM text generation and completion: send a natural-language prompt (question, instruction, " +
+      "draft, code, or classification task) and receive generated text back. No API key, no account, " +
+      "no subscription — pay $0.01 per call in USDC. Powered by Claude Haiku 4.5. Returns the " +
+      "generated text plus a truncated flag.",
     extensions: inferenceDiscovery,
   },
   "POST /api/summarize": {
     accepts: usdcPrice("0.02"), // $0.02
     description:
-      "Text summarization: send raw text (optionally with maxWords and style), receive a concise summary powered by Claude Haiku 4.5.",
+      "Text summarization and condensation: send raw text up to 50,000 characters (article, " +
+      "document, transcript, report, or thread) and receive a concise summary preserving key facts. " +
+      "Optional maxWords for target length and style (concise, bullets, or detailed). No API key or " +
+      "account — pay $0.02 per call in USDC. Returns the summary plus a truncated flag.",
     extensions: summarizeDiscovery,
   },
   // Route-key path params use the middleware's [bracket] syntax (NOT Express ":param").
@@ -127,7 +147,12 @@ const routes = {
   "GET /api/wallet-risk/[address]": {
     accepts: usdcPrice("0.015"), // $0.015
     description:
-      "Wallet risk scoring: analyzes on-chain history (age, activity, balance, USDC opt-in, counterparty diversity, rekey status) to produce an explainable 0–100 risk score.",
+      "Algorand wallet risk scoring and address reputation: given an Algorand address, returns an " +
+      "explainable 0-100 risk score, a risk level (low, medium, high), and the on-chain signals " +
+      "behind it — account age in days, transaction count, ALGO balance, USDC opt-in status, " +
+      "distinct counterparty count, and rekey history. Deterministic analysis of real Algorand " +
+      "indexer data, no LLM. Useful for agent counterparty checks, fraud screening, and KYC-style " +
+      "address due diligence before transacting. No API key or account — pay $0.015 per call in USDC.",
     extensions: walletRiskDiscovery,
   },
 };
@@ -145,8 +170,8 @@ app.post("/api/inference", async (req, res) => {
   }
 
   try {
-    const response = await anthropicComplete({ user: prompt });
-    res.json({ response });
+    const { text, truncated } = await anthropicComplete({ user: prompt });
+    res.json({ response: text, truncated });
   } catch (err) {
     if (err instanceof AnthropicError) {
       return res.status(502).json({ error: "Upstream inference call failed", detail: err.message });
@@ -178,8 +203,12 @@ app.post("/api/summarize", async (req, res) => {
   }
 
   try {
-    const summary = await anthropicComplete({ system: systemPrompt, user: text, maxTokens: 800 });
-    res.json({ summary });
+    const { text: summary, truncated } = await anthropicComplete({
+      system: systemPrompt,
+      user: text,
+      maxTokens: 800,
+    });
+    res.json({ summary, truncated });
   } catch (err) {
     if (err instanceof AnthropicError) {
       return res.status(502).json({ error: "Upstream summarization call failed", detail: err.message });
@@ -203,13 +232,30 @@ app.get("/api/wallet-risk/:address", async (req, res) => {
   }
 });
 
-// Public, unprotected routes
-app.get("/", (_req, res) => {
+// ---------------------------------------------------------------------------
+// Public, unprotected routes.
+//
+// `/` serves HTML to browsers and crawlers (the facilitator enriches the
+// merchant listing from this page's metadata) but keeps returning JSON for
+// programmatic clients that ask for it, so existing consumers don't break.
+// ---------------------------------------------------------------------------
+app.get("/", (req, res) => {
+  if (req.accepts(["html", "json"]) === "html") {
+    return res.type("html").send(renderLandingPage());
+  }
   res.json({
     name: "AgentHub",
     description: "x402-powered marketplace of paid tools for AI agents on Algorand",
     endpoints: Object.keys(routes),
+    llmsTxt: "/llms.txt",
   });
+});
+
+app.get("/llms.txt", (req, res) => {
+  // Prefer the deployed public URL so the documented endpoints are callable;
+  // fall back to the request's own host when PUBLIC_BASE_URL isn't set.
+  const baseUrl = PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
+  res.type("text/plain").send(renderLlmsTxt(baseUrl));
 });
 
 app.get("/api/health", (_req, res) => {

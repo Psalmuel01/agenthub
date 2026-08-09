@@ -141,7 +141,7 @@ async function main() {
     console.log(JSON.stringify(settle, null, 2));
     const txId = settle.txHash || settle.transaction || settle.txId;
     if (txId) {
-      console.log(`\nExplorer: https://testnet.explorer.perawallet.app/tx/${txId}`);
+      console.log(`\nExplorer: https://explorer.perawallet.app/tx/${txId}`);
     }
   }
 

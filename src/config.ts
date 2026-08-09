@@ -31,6 +31,11 @@ export const FACILITATOR_URL = requireEnv("FACILITATOR_URL");
 
 export const PORT = parseInt(process.env.PORT || "3000", 10);
 
+// Public HTTPS origin this server is reachable at, e.g. https://agenthub.example.
+// Used to write absolute endpoint URLs into /llms.txt. Optional: when unset we
+// fall back to the requesting host, which is correct in local development.
+export const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL?.replace(/\/$/, "") || "";
+
 // Required challenge tag for every route so activity is attributed correctly.
 export const CHALLENGE_TAG = "x402-global-challenge";
 

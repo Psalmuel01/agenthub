@@ -29,11 +29,20 @@ export interface AnthropicCompleteOptions {
   maxTokens?: number;
 }
 
+export interface AnthropicCompletion {
+  /** Concatenated text blocks from the response. */
+  text: string;
+  /** True when the model hit `max_tokens` and the text is cut off mid-output. */
+  truncated: boolean;
+}
+
 /**
  * Send a single-turn message to Claude Haiku 4.5 and return the concatenated
  * text blocks. Throws AnthropicError on missing key or any upstream failure.
  */
-export async function anthropicComplete(opts: AnthropicCompleteOptions): Promise<string> {
+export async function anthropicComplete(
+  opts: AnthropicCompleteOptions,
+): Promise<AnthropicCompletion> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     throw new AnthropicError("ANTHROPIC_API_KEY is not set");
@@ -78,5 +87,9 @@ export async function anthropicComplete(opts: AnthropicCompleteOptions): Promise
   if (!text) {
     throw new AnthropicError("Anthropic returned no text content");
   }
-  return text;
+
+  // `max_tokens` means the model was cut off mid-output. The text is still
+  // usable, so we return it rather than 502-ing a call the caller paid for —
+  // but the route surfaces `truncated` so an agent knows it is incomplete.
+  return { text, truncated: data?.stop_reason === "max_tokens" };
 }
