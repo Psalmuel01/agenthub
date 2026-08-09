@@ -31,6 +31,13 @@ import {
 } from "./services/explain-tx";
 
 const app = express();
+
+// Hosted platforms (Railway, Render, Fly) terminate TLS at a proxy and forward
+// over plain HTTP, so req.protocol reads "http" unless we trust the
+// X-Forwarded-* headers. Without this, /llms.txt advertises http:// URLs for a
+// payment API.
+app.set("trust proxy", true);
+
 app.use(express.json({ limit: "2mb" }));
 
 // ---------------------------------------------------------------------------
@@ -331,8 +338,11 @@ app.get("/", (req, res) => {
 
 app.get("/llms.txt", (req, res) => {
   // Prefer the deployed public URL so the documented endpoints are callable;
-  // fall back to the request's own host when PUBLIC_BASE_URL isn't set.
-  const baseUrl = PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
+  // fall back to the request's own host when PUBLIC_BASE_URL isn't set. Local
+  // development is the only case that should ever advertise http.
+  const host = req.get("host") ?? "";
+  const scheme = req.protocol === "https" || !/^localhost|^127\./.test(host) ? "https" : "http";
+  const baseUrl = PUBLIC_BASE_URL || `${scheme}://${host}`;
   res.type("text/plain").send(renderLlmsTxt(baseUrl));
 });
 
