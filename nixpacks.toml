@@ -1,0 +1,6 @@
+# Node 20 is required, not optional: @noble/hashes v2 (pulled in via
+# @x402-avm/avm -> @algokit-utils) is pure ESM and declares engines
+# ">= 20.19.0". Node 18 cannot require() an ESM module, so the server crashes
+# at startup on config.js with ERR_REQUIRE_ESM.
+[phases.setup]
+nixPkgs = ["nodejs_20"]
