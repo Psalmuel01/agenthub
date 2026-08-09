@@ -11,7 +11,7 @@ import { x402Client, x402HTTPClient } from "@x402-avm/core/client";
 import { registerExactAvmScheme } from "@x402-avm/avm/exact/client";
 import { toClientAvmSigner } from "@x402-avm/avm";
 
-export const DEFAULT_BASE_URL = "https://agenthub-x1jx.onrender.com";
+export const DEFAULT_BASE_URL = "https://agenthub-production-8c75.up.railway.app";
 const DEFAULT_ALGOD_URL = "https://mainnet-api.algonode.cloud";
 
 export interface AgentHubOptions {

@@ -109,15 +109,15 @@ try {
 ```ts
 new AgentHub({
   mnemonic: "...",                                  // required
-  baseUrl: "https://agenthub-x1jx.onrender.com",    // override for self-hosted
+  baseUrl: "https://agenthub-production-8c75.up.railway.app",    // override for self-hosted
   algodUrl: "https://mainnet-api.algonode.cloud",   // must match the server's network
 });
 ```
 
 ## Links
 
-- Live API: https://agenthub-x1jx.onrender.com
+- Live API: https://agenthub-production-8c75.up.railway.app
 - Source and self-hosting: https://github.com/Psalmuel01/agenthub
-- Machine-readable tool list: https://agenthub-x1jx.onrender.com/llms.txt
+- Machine-readable tool list: https://agenthub-production-8c75.up.railway.app/llms.txt
 
 MIT

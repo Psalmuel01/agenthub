@@ -3,7 +3,7 @@ Draft copy for distribution (Algorand Discord, x402 / agent-builder communities,
 Not shipped code — delete or keep as you like.
 
 Before posting, sanity-check:
-  - the endpoint is up:  curl https://agenthub-x1jx.onrender.com/api/health
+  - the endpoint is up:  curl https://agenthub-production-8c75.up.railway.app/api/health
   - the repo is public and the README renders
 Post in dev/showcase channels, not #general, and follow each community's self-promo rules.
 -->
@@ -26,11 +26,11 @@ Post in dev/showcase channels, not #general, and follow each community's self-pr
 > zero integration:
 > ```
 > bazaar_search "wallet risk"
-> make_http_request_with_x402 "https://agenthub-x1jx.onrender.com/api/wallet-risk/<ADDRESS>"
+> make_http_request_with_x402 "https://agenthub-production-8c75.up.railway.app/api/wallet-risk/<ADDRESS>"
 > ```
 >
 > Repo: https://github.com/Psalmuel01/agenthub
-> Live: https://agenthub-x1jx.onrender.com
+> Live: https://agenthub-production-8c75.up.railway.app
 >
 > wallet-risk is the one I'd actually like feedback on — it's meant for agents doing
 > counterparty checks before transacting. If the scoring weights look wrong for your use
@@ -70,7 +70,7 @@ today with zero integration work:
 
 ```
 bazaar_search "wallet risk"
-make_http_request_with_x402 "https://agenthub-x1jx.onrender.com/api/wallet-risk/<ADDRESS>"
+make_http_request_with_x402 "https://agenthub-production-8c75.up.railway.app/api/wallet-risk/<ADDRESS>"
 ```
 
 **6/**
@@ -78,4 +78,4 @@ Also there for breadth: `/api/inference` ($0.01, prompt→text) and `/api/summar
 ($0.02, up to 50k chars→summary).
 
 Repo (MIT, self-hostable): https://github.com/Psalmuel01/agenthub
-Live: https://agenthub-x1jx.onrender.com
+Live: https://agenthub-production-8c75.up.railway.app

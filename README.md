@@ -2,7 +2,7 @@
 
 **Four pay-per-call tools your AI agent can use — no signup, no API key, no subscription.**
 
-Live on Algorand mainnet: **https://agenthub-x1jx.onrender.com**
+Live on Algorand mainnet: **https://agenthub-production-8c75.up.railway.app**
 
 Your agent makes a normal HTTP request, gets back `402 Payment Required` with a quote,
 attaches a USDC micropayment, and receives the result. Payment *is* the authorization
@@ -15,7 +15,7 @@ layer — there is no account to create and no key to manage.
 | `POST /api/inference` | $0.01 | Prompt in, generated text out (Claude Haiku 4.5). |
 | `POST /api/summarize` | $0.02 | Up to 50,000 characters in, concise summary out. |
 
-Machine-readable summary for agents: [`/llms.txt`](https://agenthub-x1jx.onrender.com/llms.txt)
+Machine-readable summary for agents: [`/llms.txt`](https://agenthub-production-8c75.up.railway.app/llms.txt)
 
 ## Fastest integration: the npm package
 
@@ -62,7 +62,7 @@ Under the hood that's two MCP tool calls:
 bazaar_search("wallet risk")
 
 make_http_request_with_x402({
-  url: "https://agenthub-x1jx.onrender.com/api/wallet-risk/G3YVTPURK6VFSM5CXEH7QFTZXLCXBJL6UMAIUUYJO4P2XF3MHQ4FUHYYB4",
+  url: "https://agenthub-production-8c75.up.railway.app/api/wallet-risk/G3YVTPURK6VFSM5CXEH7QFTZXLCXBJL6UMAIUUYJO4P2XF3MHQ4FUHYYB4",
   method: "GET"
 })
 ```
@@ -98,7 +98,7 @@ rather than trusting a bare number.
 
 Any HTTP client works — the flow is four steps:
 
-1. `GET https://agenthub-x1jx.onrender.com/api/wallet-risk/{address}` → `402` with a quote
+1. `GET https://agenthub-production-8c75.up.railway.app/api/wallet-risk/{address}` → `402` with a quote
 2. Read the quote from the `PAYMENT-REQUIRED` header
 3. Sign a USDC transfer for the quoted amount to the quoted address
 4. Retry the identical request with the signature in the `PAYMENT-SIGNATURE` header
@@ -138,7 +138,7 @@ diligence in agent workflows.
 
 ### Requirements
 
-- Node.js 18+
+- Node.js 20.19+ (a core dependency is ESM-only and cannot be `require()`d on Node 18)
 - An Algorand account opted in to USDC (to receive payment)
 - An Anthropic API key (only for the LLM routes)
 
