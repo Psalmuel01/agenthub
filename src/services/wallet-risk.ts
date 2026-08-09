@@ -28,6 +28,7 @@
 
 import { isValidAlgorandAddress } from "@x402-avm/avm";
 import { INDEXER_URL, USDC_ASA_ID } from "../config";
+import { indexerFetch } from "./indexer-fetch";
 
 /** Max transactions to pull for the activity/counterparty signals. */
 const TX_LIMIT = 100;
@@ -65,24 +66,14 @@ export interface WalletRiskResult {
 }
 
 async function indexerGet(path: string): Promise<any> {
-  let resp: Response;
   try {
-    resp = await fetch(`${INDEXER_URL}${path}`);
+    // 404 comes back as null: an account only exists on-chain once funded, so
+    // "not found" is a valid empty account rather than an error.
+    const { body } = await indexerFetch(`${INDEXER_URL}${path}`);
+    return body;
   } catch (err) {
-    throw new WalletRiskError(`indexer request failed: ${String(err)}`);
+    throw new WalletRiskError(err instanceof Error ? err.message : String(err));
   }
-  // 404 = account exists on-chain only once it has been funded; treat "not found"
-  // as a valid empty account rather than an error.
-  if (resp.status === 404) {
-    return null;
-  }
-  if (!resp.ok) {
-    const detail = await resp.text().catch(() => "");
-    throw new WalletRiskError(`indexer returned ${resp.status}: ${detail.slice(0, 300)}`);
-  }
-  return resp.json().catch(() => {
-    throw new WalletRiskError("indexer returned invalid JSON");
-  });
 }
 
 export async function scoreWallet(address: string): Promise<WalletRiskResult> {

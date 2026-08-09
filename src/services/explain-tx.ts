@@ -16,6 +16,7 @@
  */
 
 import { INDEXER_URL } from "../config";
+import { indexerFetch } from "./indexer-fetch";
 
 const MICRO_ALGO = 1_000_000;
 
@@ -97,22 +98,12 @@ interface AssetMeta {
 const assetCache = new Map<string, AssetMeta>();
 
 async function indexerGet(path: string): Promise<any> {
-  let resp: Response;
   try {
-    resp = await fetch(`${INDEXER_URL}${path}`);
+    const { body } = await indexerFetch(`${INDEXER_URL}${path}`);
+    return body;
   } catch (err) {
-    throw new ExplainTxError(`indexer request failed: ${String(err)}`);
+    throw new ExplainTxError(err instanceof Error ? err.message : String(err));
   }
-  if (resp.status === 404) {
-    return null;
-  }
-  if (!resp.ok) {
-    const detail = await resp.text().catch(() => "");
-    throw new ExplainTxError(`indexer returned ${resp.status}: ${detail.slice(0, 300)}`);
-  }
-  return resp.json().catch(() => {
-    throw new ExplainTxError("indexer returned invalid JSON");
-  });
 }
 
 async function getAssetMeta(assetId: number | string): Promise<AssetMeta> {
