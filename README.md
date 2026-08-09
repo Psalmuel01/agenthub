@@ -11,10 +11,29 @@ layer — there is no account to create and no key to manage.
 | Tool | Price | What it does |
 |---|---|---|
 | `GET /api/wallet-risk/{address}` | $0.015 | Explainable 0–100 risk score for any Algorand address, from real on-chain data. No LLM. |
+| `GET /api/explain-tx/{txid}` | $0.015 | Plain-language explanation of what an Algorand transaction did, with every transfer decoded. No LLM. |
 | `POST /api/inference` | $0.01 | Prompt in, generated text out (Claude Haiku 4.5). |
 | `POST /api/summarize` | $0.02 | Up to 50,000 characters in, concise summary out. |
 
 Machine-readable summary for agents: [`/llms.txt`](https://agenthub-x1jx.onrender.com/llms.txt)
+
+## Fastest integration: the npm package
+
+```bash
+npm install @agenthub/tools
+```
+
+```ts
+import { AgentHub } from "@agenthub/tools";
+
+const hub = new AgentHub({ mnemonic: process.env.ALGORAND_MNEMONIC! });
+const risk = await hub.walletRisk(address);
+if (risk.riskScore > 60) throw new Error("counterparty too risky");
+```
+
+The 402 handshake, signing, and settlement happen inside the call. It also ships
+ready-made tool definitions for the Anthropic and OpenAI SDKs — see
+[`packages/agenthub-tools`](packages/agenthub-tools).
 
 ---
 

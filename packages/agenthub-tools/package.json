@@ -1,0 +1,48 @@
+{
+  "name": "@agenthub/tools",
+  "version": "0.1.0",
+  "description": "Pay-per-call Algorand wallet risk scoring, transaction explanation, and LLM tools for AI agents. No API key or account — agents pay per request in USDC over x402.",
+  "keywords": [
+    "algorand",
+    "x402",
+    "ai-agents",
+    "agent-tools",
+    "wallet-risk",
+    "onchain",
+    "usdc",
+    "micropayments",
+    "mcp",
+    "anthropic",
+    "openai",
+    "tool-calling"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Psalmuel01/agenthub.git",
+    "directory": "packages/agenthub-tools"
+  },
+  "homepage": "https://agenthub-x1jx.onrender.com",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@x402-avm/avm": "^2.6.1",
+    "@x402-avm/core": "^2.6.1",
+    "algosdk": "^3.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

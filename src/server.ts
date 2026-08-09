@@ -23,6 +23,12 @@ import {
   InvalidAddressError,
   WalletRiskError,
 } from "./services/wallet-risk";
+import {
+  explainTransaction,
+  InvalidTxIdError,
+  TxNotFoundError,
+  ExplainTxError,
+} from "./services/explain-tx";
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));
@@ -123,6 +129,47 @@ const walletRiskDiscovery = declareDiscoveryExtension({
   },
 });
 
+// ---------------------------------------------------------------------------
+// Route 4: transaction explanation
+// ---------------------------------------------------------------------------
+const explainTxDiscovery = declareDiscoveryExtension({
+  input: { txid: "ALGORAND_TRANSACTION_ID_52_CHARS" },
+  inputSchema: {
+    properties: {
+      txid: {
+        type: "string",
+        description: "Algorand transaction id (52-character base32)",
+      },
+    },
+    required: ["txid"],
+  },
+  output: {
+    example: {
+      txid: "ALGORAND_TRANSACTION_ID_52_CHARS",
+      type: "axfer",
+      typeLabel: "Asset transfer",
+      summary: "G3YVTP…HYYB4 sent 0.02 USDC to MUVW2R…NUQVVM.",
+      sender: "ALGORAND_ADDRESS_58_CHARS",
+      confirmedRound: 63909126,
+      timestamp: "2026-08-09T19:30:21.000Z",
+      feeAlgo: 0.001,
+      transfers: [
+        {
+          asset: "31566704",
+          assetName: "USDC",
+          amount: 0.02,
+          amountRaw: "20000",
+          from: "ALGORAND_ADDRESS_58_CHARS",
+          to: "ALGORAND_ADDRESS_58_CHARS",
+        },
+      ],
+      application: null,
+      note: null,
+      grouped: false,
+    },
+  },
+});
+
 const routes = {
   "POST /api/inference": {
     accepts: usdcPrice("0.01"), // $0.01
@@ -154,6 +201,19 @@ const routes = {
       "indexer data, no LLM. Useful for agent counterparty checks, fraud screening, and KYC-style " +
       "address due diligence before transacting. No API key or account — pay $0.015 per call in USDC.",
     extensions: walletRiskDiscovery,
+  },
+  "GET /api/explain-tx/[txid]": {
+    accepts: usdcPrice("0.015"), // $0.015
+    description:
+      "Algorand transaction explainer and decoder: given a transaction id, returns a " +
+      "plain-language summary of what the transaction actually did, plus structured detail — " +
+      "transaction type, sender, every ALGO and ASA transfer with human-readable amounts and " +
+      "resolved asset names, application call id and inner transactions, fee, confirmation " +
+      "round, timestamp, and decoded note. Decodes DEX swaps and smart contract calls by " +
+      "walking inner transactions. Deterministic decoding of real Algorand indexer data, no " +
+      "LLM. Useful for agent transaction auditing, payment verification, and explaining " +
+      "on-chain activity to users. No API key or account — pay $0.015 per call in USDC.",
+    extensions: explainTxDiscovery,
   },
 };
 
@@ -227,6 +287,24 @@ app.get("/api/wallet-risk/:address", async (req, res) => {
     }
     if (err instanceof WalletRiskError) {
       return res.status(502).json({ error: "Wallet risk analysis failed", detail: err.message });
+    }
+    throw err;
+  }
+});
+
+app.get("/api/explain-tx/:txid", async (req, res) => {
+  try {
+    const result = await explainTransaction(req.params.txid);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof InvalidTxIdError) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err instanceof TxNotFoundError) {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err instanceof ExplainTxError) {
+      return res.status(502).json({ error: "Transaction lookup failed", detail: err.message });
     }
     throw err;
   }

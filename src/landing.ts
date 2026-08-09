@@ -52,6 +52,19 @@ export const TOOLS: ToolListing[] = [
       "txCount, balanceAlgo, usdcOptedIn, distinctCounterparties, rekeyed } }",
   },
   {
+    method: "GET",
+    path: "/api/explain-tx/{txid}",
+    price: "$0.015",
+    name: "Algorand transaction explainer",
+    blurb:
+      "Turn a transaction id into a plain-language summary plus structured detail — every " +
+      "transfer with resolved asset names, decoded app calls and inner transactions. No LLM.",
+    input: "An Algorand transaction id (52-character base32) in the URL path.",
+    output:
+      "{ txid, type, typeLabel, summary, sender, confirmedRound, timestamp, feeAlgo, " +
+      "transfers: [{ asset, assetName, amount, amountRaw, from, to }], application, note, grouped }",
+  },
+  {
     method: "POST",
     path: "/api/inference",
     price: "$0.01",
