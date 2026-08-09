@@ -1,109 +1,213 @@
 # AgentHub
 
-An x402-powered marketplace where AI agents and developers pay per request to use
-specialized tools — no accounts, API keys, or subscriptions required. Built for the
-Algorand Global x402 Challenge as a Composite Entry.
+**Three pay-per-call tools your AI agent can use — no signup, no API key, no subscription.**
 
-## Overview
+Live on Algorand mainnet: **https://agenthub-x1jx.onrender.com**
 
-AgentHub exposes a set of paid microservices behind the [x402](https://algorand.co/agentic-commerce/x402)
-payment protocol. Each request is gated by HTTP 402: the caller receives a payment quote,
-settles a USDC micropayment on Algorand through the GoPlausible facilitator, and retries
-with proof of payment to receive the response.
+Your agent makes a normal HTTP request, gets back `402 Payment Required` with a quote,
+attaches a USDC micropayment, and receives the result. Payment *is* the authorization
+layer — there is no account to create and no key to manage.
 
-Every endpoint shares a single `payTo` address, one domain, and one facilitator, so all
-volume rolls up into a single leaderboard total (the Composite Entry model).
-
-## Endpoints
-
-| Route | Price | Description |
+| Tool | Price | What it does |
 |---|---|---|
-| `POST /api/inference` | $0.01 | Pay-per-prompt LLM inference (Claude Haiku 4.5) |
-| `POST /api/summarize` | $0.02 | Text summarization (Claude Haiku 4.5) |
-| `GET /api/wallet-risk/:address` | $0.015 | Algorand wallet risk scoring from on-chain history |
+| `GET /api/wallet-risk/{address}` | $0.015 | Explainable 0–100 risk score for any Algorand address, from real on-chain data. No LLM. |
+| `POST /api/inference` | $0.01 | Prompt in, generated text out (Claude Haiku 4.5). |
+| `POST /api/summarize` | $0.02 | Up to 50,000 characters in, concise summary out. |
 
-Health and root routes (`GET /`, `GET /api/health`) are unprotected.
+Machine-readable summary for agents: [`/llms.txt`](https://agenthub-x1jx.onrender.com/llms.txt)
 
-## Requirements
+---
+
+## Use it from an agent (30 seconds)
+
+If your agent runs the [GoPlausible Algorand MCP server](https://github.com/GoPlausible/algorand-mcp),
+it can discover and pay these endpoints with **zero integration work** — the MCP server
+handles the 402, the signature, and the settlement for you.
+
+Install it in Claude Desktop, Claude Code, Cursor, Windsurf, or Codex:
+
+```bash
+npx -y @goplausible/algorand-mcp
+```
+
+Then just ask your agent to use it:
+
+```
+Search the x402 bazaar for "wallet risk", then use it to score
+G3YVTPURK6VFSM5CXEH7QFTZXLCXBJL6UMAIUUYJO4P2XF3MHQ4FUHYYB4
+```
+
+Under the hood that's two MCP tool calls:
+
+```js
+bazaar_search("wallet risk")
+
+make_http_request_with_x402({
+  url: "https://agenthub-x1jx.onrender.com/api/wallet-risk/G3YVTPURK6VFSM5CXEH7QFTZXLCXBJL6UMAIUUYJO4P2XF3MHQ4FUHYYB4",
+  method: "GET"
+})
+```
+
+You need an Algorand wallet with a little USDC (ASA `31566704`) and ALGO for fees, opted
+in to USDC. At $0.015 a call, $1 is ~66 wallet-risk lookups.
+
+### Example response
+
+```json
+{
+  "address": "G3YVTPURK6VFSM5CXEH7QFTZXLCXBJL6UMAIUUYJO4P2XF3MHQ4FUHYYB4",
+  "riskScore": 35,
+  "riskLevel": "medium",
+  "signals": {
+    "accountAgeDays": 0,
+    "txCount": 29,
+    "balanceAlgo": 13.164828,
+    "usdcOptedIn": true,
+    "distinctCounterparties": 5,
+    "rekeyed": false
+  }
+}
+```
+
+*(Real output. This address is a few days old with limited history, so it scores
+`medium` — new accounts carry uncertainty, and the signals show exactly why.)*
+
+Every signal behind the score is returned with it, so an agent can act on the reasoning
+rather than trusting a bare number.
+
+### Without MCP
+
+Any HTTP client works — the flow is four steps:
+
+1. `GET https://agenthub-x1jx.onrender.com/api/wallet-risk/{address}` → `402` with a quote
+2. Read the quote from the `PAYMENT-REQUIRED` header
+3. Sign a USDC transfer for the quoted amount to the quoted address
+4. Retry the identical request with the signature in the `PAYMENT-SIGNATURE` header
+
+[`scripts/test-client.ts`](scripts/test-client.ts) is a complete, working ~150-line
+implementation of exactly this using `@x402-avm/core`.
+
+---
+
+## Why wallet-risk
+
+It answers a question on-chain agents actually have — *should I transact with this
+address?* — and it's the tool AgentHub is built around.
+
+The score is **deterministic and auditable**: no model, no opaque judgment. It reads the
+public Algorand indexer and weighs six signals, each documented in
+[`src/services/wallet-risk.ts`](src/services/wallet-risk.ts):
+
+| Signal | Contribution |
+|---|---|
+| Account age | Newer accounts score higher risk (< 7d: +35, < 30d: +20, < 90d: +10) |
+| Transaction count | Thin history scores higher (0 txns: +30, < 5: +18, < 25: +8) |
+| ALGO balance | Unfunded scores higher (0: +15, < 1 ALGO: +8) |
+| USDC opt-in | Not opted into the payment asset: +8 |
+| Counterparty diversity | 0–1 distinct peers (isolated/sybil-like): +7 |
+| Rekey history | Account has been rekeyed — custody changed: +25 |
+
+Raw sum is clamped to 0–100. Under 30 is `low`, under 70 is `medium`, else `high`. A
+brand-new empty account returns a valid high-uncertainty result, not an error.
+
+Good for counterparty checks before transacting, fraud screening, and address due
+diligence in agent workflows.
+
+---
+
+## Self-hosting
+
+### Requirements
 
 - Node.js 18+
-- An Algorand account opted in to USDC (for receiving payment)
-- An Anthropic API key (for the inference and summarization endpoints)
+- An Algorand account opted in to USDC (to receive payment)
+- An Anthropic API key (only for the LLM routes)
 
-## Setup
+### Setup
 
 ```bash
 npm install
 cp .env.example .env
 ```
 
-Configure `.env`:
-
 | Variable | Required | Description |
 |---|---|---|
-| `RECEIVER_ADDRESS` | yes | Algorand address that receives payment for every route. Opt it into USDC. Do not change it mid-competition — volume is attributed by this address. |
-| `FACILITATOR_URL` | yes | GoPlausible facilitator URL (`https://facilitator.goplausible.xyz`). |
+| `RECEIVER_ADDRESS` | yes | Algorand address that receives payment for every route. Opt it into USDC. Don't change it mid-competition — volume is attributed by this address. |
+| `FACILITATOR_URL` | yes | GoPlausible facilitator (`https://facilitator.goplausible.xyz`). |
 | `X402_NETWORK` | yes | `testnet` for development, `mainnet` for production. |
-| `ANTHROPIC_API_KEY` | for LLM routes | Used by `/api/inference` and `/api/summarize`. If unset, those routes return 502 and a warning is logged at startup. Not needed for `/api/wallet-risk`. |
-| `INDEXER_URL` | no | Algorand indexer for wallet-risk. Defaults to the public AlgoNode indexer for the selected network. |
-| `PORT` | no | HTTP port (default `3000`). |
+| `ANTHROPIC_API_KEY` | for LLM routes | Used by `/api/inference` and `/api/summarize`. If unset those routes return 502 and a warning is logged at startup. Not needed for `/api/wallet-risk`. |
+| `PUBLIC_BASE_URL` | no | Public HTTPS origin, used for absolute URLs in `/llms.txt`. Falls back to the request host. |
+| `INDEXER_URL` | no | Algorand indexer. Defaults to the public AlgoNode indexer for the selected network. |
+| `PORT` | no | HTTP port (default `3000`). Hosts like Render inject this. |
 
-## Usage
-
-Start the server:
+### Run
 
 ```bash
 npm run dev      # development
 npm start        # production (after npm run build)
 ```
 
-Drive the full x402 flow with the bundled client:
+Drive the full x402 flow against a running server:
 
 ```bash
-npm run test-client                                    # POST /api/inference
-npm run test-client -- /api/summarize                  # POST /api/summarize
-npm run test-client -- /api/wallet-risk/<ALGO_ADDRESS> # GET  /api/wallet-risk
+npm run test-client -- /api/wallet-risk/<ALGO_ADDRESS>
+npm run test-client -- /api/inference
+npm run test-client -- /api/summarize
 ```
 
-The client reads a paying wallet from `.env` (`AVM_CLIENT_MNEMONIC` — a separate testnet
-account funded with test ALGO + USDC and opted into USDC ASA `10458941`), receives the
-402, signs a USDC payment, retries with the `PAYMENT-SIGNATURE` header, and prints the
-response and settlement result.
+The client reads a paying wallet from `AVM_CLIENT_MNEMONIC`, receives the 402, signs the
+payment, retries with `PAYMENT-SIGNATURE`, and prints the response plus settlement.
 
-Testnet activity is for validation only and does not count toward the leaderboard.
+> **Match `ALGOD_URL` to `X402_NETWORK`.** Signing against testnet algod while the server
+> quotes mainnet produces a mismatched genesis hash and the facilitator rejects the
+> payment with a second 402.
 
-## Deploying to mainnet
+### Deploying to mainnet
 
-1. Set `X402_NETWORK=mainnet`.
+1. Set `X402_NETWORK=mainnet` and `PUBLIC_BASE_URL` to your HTTPS origin.
 2. Confirm `RECEIVER_ADDRESS` is a mainnet account opted in to USDC (ASA `31566704`).
-3. Deploy to a public host over HTTPS.
+3. Deploy over HTTPS. Avoid free tiers that sleep — a cold start can exceed an agent's
+   timeout before the 402 is returned.
 4. Settle one real payment against each route. Endpoints then appear in the Bazaar
-   catalog and on the competition leaderboard.
+   catalog and on the leaderboard.
 
-## Adding an endpoint
+### Adding an endpoint
 
 Add one entry to the `routes` object in [`src/server.ts`](src/server.ts) with its price
-and description, add the matching route handler, and keep `PAY_TO` unchanged. That is the
-whole pattern.
+and description, add the matching handler, and keep `PAY_TO` unchanged. That's the whole
+pattern.
 
-Prices are expressed in decimal USDC (dollars). `usdcPrice("0.01")` bills one cent; the
-SDK multiplies by USDC's six decimals internally.
+Prices are **decimal USDC (dollars)**: `usdcPrice("0.01")` bills one cent. The SDK
+multiplies by USDC's six decimals internally — passing `"10000"` would bill 10,000 USDC.
 
-## Project structure
+Route keys use the middleware's `[bracket]` param syntax (`GET /api/wallet-risk/[address]`),
+not Express's `:colon` form. A colon route silently bypasses payment.
+
+---
+
+## Architecture
 
 ```
 src/
   server.ts              Express app, routes, x402 middleware, Bazaar discovery
   config.ts              Network, addresses, facilitator, indexer config
+  landing.ts             Public landing page + /llms.txt (single source of truth)
   services/
     anthropic.ts         Shared Anthropic Messages API client
     wallet-risk.ts       On-chain risk scoring via the Algorand indexer
 scripts/
-  test-client.ts         End-to-end x402 client for local testing
+  test-client.ts         End-to-end x402 client
   optin-usdc.ts          USDC opt-in helper
 ```
 
+Every route shares one `payTo` address, one domain, and one facilitator — the Composite
+Entry model, so all volume rolls up to a single leaderboard total.
+
+**Settlement:** USDC (ASA `31566704`) on Algorand mainnet via the GoPlausible facilitator.
+
 ## References
 
-- [GoPlausible x402-avm documentation](https://github.com/GoPlausible/.github/tree/main/profile/algorand-x402-documentation)
+- [GoPlausible x402-avm docs](https://github.com/GoPlausible/.github/tree/main/profile/algorand-x402-documentation)
+- [GoPlausible Algorand MCP server](https://github.com/GoPlausible/algorand-mcp)
 - [Algorand x402 developer portal](https://algorand.co/agentic-commerce/x402)
+- [x402 Bazaar discovery](https://docs.x402.org/extensions/bazaar)
