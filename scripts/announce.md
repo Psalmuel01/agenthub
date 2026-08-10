@@ -21,9 +21,9 @@ is a developer whose agent already holds USDC. Post in dev/showcase channels, no
 > an endpoint, gets a 402 with a quote, attaches a USDC micropayment, gets the result. No
 > account, no API key, no subscription.
 >
-> **Try it free, no wallet needed:**
+> **Try it right now — free, no wallet, no signup.** This is a real live call:
 > ```
-> curl https://agenthub-production-8c75.up.railway.app/api/portfolio/<ALGO_ADDRESS>
+> curl https://agenthub-production-8c75.up.railway.app/api/portfolio/ZW3ISEHZUHPO7OZGMKLKIIMKVICOUDRCERI454I3DB2BH52HGLSO67W754
 > ```
 >
 > The paid ones, all deterministic (no LLM — every signal behind the answer comes back
@@ -113,11 +113,60 @@ Ready-made tool definitions for the Anthropic and OpenAI SDKs are included, so y
 hand them straight to a model. Or use the GoPlausible Algorand MCP server.
 
 **8/**
-Start free — no wallet, no payment:
+Start free — no wallet, no payment. Paste this anywhere:
 
 ```
-curl https://agenthub-production-8c75.up.railway.app/api/portfolio/<ADDRESS>
+curl https://agenthub-production-8c75.up.railway.app/api/portfolio/ZW3ISEHZUHPO7OZGMKLKIIMKVICOUDRCERI454I3DB2BH52HGLSO67W754
 ```
 
 Repo (MIT, self-hostable): https://github.com/Psalmuel01/agenthub
 Live: https://agenthub-production-8c75.up.railway.app
+
+## Targeted version (DeFi / trading-bot / wallet builders)
+
+Use this where people are already building agents that move funds — it leads with the
+problem, not the product.
+
+> If you're running an agent that sends Algorand transactions, you've probably hand-rolled
+> some version of "is this address sketchy" and "is this token real" against the indexer.
+> I turned those into endpoints so I'd stop rewriting them.
+>
+> Free, no wallet, try it now:
+> ```
+> curl https://agenthub-production-8c75.up.railway.app/api/portfolio/<ANY_ALGO_ADDRESS>
+> ```
+>
+> The two I actually use:
+> • `wallet-risk` ($0.03) — 0–100 on an address from account age, activity, balance,
+>   counterparty diversity, and rekey history. Rekeyed accounts get +25 and you're told why.
+> • `asset-risk` ($0.03) — clawback/freeze powers, mutable supply, and largest-holder share
+>   of *real circulating* supply (declared total minus unissued reserve).
+>
+> Both are deterministic — no LLM. Every signal comes back with the score, so you can apply
+> your own thresholds instead of trusting mine.
+>
+> ```
+> npm install agenthub-algo
+> ```
+> Also ships Anthropic/OpenAI tool definitions if you want to hand them to a model directly.
+>
+> https://github.com/Psalmuel01/agenthub
+>
+> Genuinely after feedback on the scoring weights — they're my judgment calls and I'd rather
+> hear they're wrong for your use case than have you silently not use them.
+
+## Where to post
+
+Ranked by how likely the reader's agent already holds USDC:
+
+1. **Algorand DeFi / trading-bot project Discords** — highest intent. Their agents already
+   move value, so counterparty and token screening is a live problem, not a curiosity.
+2. **Wallet and payment tooling teams** — address screening before a send is a feature they
+   may want to buy rather than build.
+3. **x402 / agentic-payments communities** — the mechanism is already understood here, so
+   the pitch is the tools, not the protocol.
+4. **Algorand Discord dev channels** — good for visibility and feedback, though many
+   readers are protocol people and other entrants rather than customers.
+5. **MCP directories** (Glama, mcp.so, Smithery) — a different discovery surface from the
+   Bazaar. Purely additive; the settlement path is unchanged, so leaderboard attribution
+   is unaffected.
