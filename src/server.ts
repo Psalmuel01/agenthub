@@ -31,6 +31,11 @@ import {
   ExplainTxError,
 } from "./services/explain-tx";
 import {
+  getPortfolio,
+  InvalidPortfolioAddressError,
+  PortfolioError,
+} from "./services/portfolio";
+import {
   scoreAsset,
   InvalidAsaIdError,
   AssetNotFoundError,
@@ -449,6 +454,26 @@ app.post("/api/verify-payment", async (req, res) => {
     }
     if (err instanceof VerifyPaymentError) {
       return res.status(502).json({ error: "Payment verification failed", detail: err.message });
+    }
+    throw err;
+  }
+});
+
+// FREE — deliberately registered outside the x402 `routes` map, so it returns
+// JSON with no 402. This is the adoption funnel: a developer sees real on-chain
+// output with zero friction, and the natural follow-up questions ("is this
+// address safe?", "is this token a scam?") are the paid wallet-risk and
+// asset-risk endpoints operating on exactly this data.
+app.get("/api/portfolio/:address", async (req, res) => {
+  try {
+    const result = await getPortfolio(req.params.address);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof InvalidPortfolioAddressError) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err instanceof PortfolioError) {
+      return res.status(502).json({ error: "Portfolio lookup failed", detail: err.message });
     }
     throw err;
   }

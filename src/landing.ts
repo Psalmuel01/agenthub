@@ -184,6 +184,22 @@ export const TOOLS: ToolListing[] = [
       "concentrationExact, creatorAgeDays } }",
   },
   {
+    method: "GET",
+    path: "/api/portfolio/{address}",
+    price: "FREE",
+    free: true,
+    name: "Account portfolio snapshot",
+    deterministic: true,
+    searchTerm: "Algorand portfolio lookup",
+    blurb:
+      "Every holding for an Algorand address in one call — ALGO balance plus each ASA with " +
+      "resolved names and decimals-corrected amounts, largest first. No LLM.",
+    input: "An Algorand address (58 characters) in the URL path.",
+    output:
+      "{ address, algo: { amount, amountRaw }, assets: [{ asaId, name, unitName, amount, " +
+      "amountRaw, decimals, isFrozen }], assetCount, truncated, priced }",
+  },
+  {
     method: "POST",
     path: "/api/verify-payment",
     price: "$0.02",
