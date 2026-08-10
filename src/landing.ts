@@ -62,9 +62,14 @@ function buildTitle(): string {
  */
 const MAX_NAMED_IN_DESCRIPTION = 6;
 
+/** Short endpoint name for prose: "/api/relationship?a=..&b=.." -> "relationship". */
+function endpointSlug(path: string): string {
+  return (path.split("?")[0].split("/")[2] ?? path).replace(/[{}]/g, "");
+}
+
 /** Note for llms.txt naming whichever endpoints are LLM-free, so it can't go stale. */
 function deterministicNote(): string {
-  const names = TOOLS.filter((t) => t.deterministic).map((t) => t.path.split("/")[2]);
+  const names = TOOLS.filter((t) => t.deterministic).map((t) => endpointSlug(t.path));
   if (names.length === 0) return "All endpoints return structured JSON.";
   const clause =
     names.length > 1
@@ -105,10 +110,16 @@ function buildDescription(): string {
   const remainder = all.length - named.length;
   const tail = remainder > 0 ? `, plus ${remainder} more` : "";
 
+  const freeCount = TOOLS.filter((t) => t.free).length;
+  const freeClause =
+    freeCount > 0
+      ? ` ${freeCount === 1 ? "One is" : `${countWord(freeCount)} are`} free to call.`
+      : "";
+
   return (
-    `${countWord(TOOLS.length)} x402 micropayment APIs for AI agents: ${list}${tail}. ` +
+    `${countWord(TOOLS.length)} x402 pay-per-call APIs for AI agents: ${list}${tail}. ` +
     "No accounts, no API keys, no subscriptions — agents pay per request in USDC on " +
-    "Algorand mainnet."
+    `Algorand mainnet.${freeClause}`
   );
 }
 
@@ -361,9 +372,13 @@ export function renderLandingPage(baseUrl?: string): string {
     <span class="badge">x402 · Algorand mainnet</span>
     <h1>Pay-per-call tools your agent can use</h1>
     <p class="lede">
-      ${countWord(TOOLS.length)} HTTP APIs that charge per request over the x402 protocol. No
-      signup, no API key, no subscription — your agent attaches a USDC micropayment to a normal
-      HTTP request and gets a useful result back. Payment <em>is</em> the authorization layer.
+      ${countWord(TOOLS.length)} HTTP APIs for agents working on Algorand${
+        TOOLS.some((t) => t.free)
+          ? ", one of them free to call"
+          : ""
+      }. No signup, no API key,
+      no subscription — your agent attaches a USDC micropayment to a normal HTTP request and
+      gets a useful result back. Payment <em>is</em> the authorization layer.
     </p>
 
     <h2>Tools</h2>
