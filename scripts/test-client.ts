@@ -48,7 +48,16 @@ function bodyFor(p: string): unknown | undefined {
         "On Algorand, payments settle in USDC through a facilitator in seconds.",
     };
   }
-  return undefined; // wallet-risk (GET) or anything else
+  if (p.startsWith("/api/verify-payment")) {
+    // Verifies one of our own earlier settlements: 0.02 USDC payer -> receiver.
+    return {
+      txid: "U6RNSGSAWJ3AINV4WGKGELVJC5SGHN2MS3HGJEQTOBOHKHMX7HYA",
+      expectedReceiver: "G3YVTPURK6VFSM5CXEH7QFTZXLCXBJL6UMAIUUYJO4P2XF3MHQ4FUHYYB4",
+      expectedAsset: "31566704",
+      expectedAmount: 0.02,
+    };
+  }
+  return undefined; // GET routes (wallet-risk, explain-tx, asset-risk, …)
 }
 
 async function main() {
