@@ -30,6 +30,12 @@ import {
   TxNotFoundError,
   ExplainTxError,
 } from "./services/explain-tx";
+import {
+  verifyPayment,
+  InvalidVerifyRequestError,
+  VerifyTxNotFoundError,
+  VerifyPaymentError,
+} from "./services/verify-payment";
 
 const app = express();
 
@@ -178,9 +184,76 @@ const explainTxDiscovery = declareDiscoveryExtension({
   },
 });
 
+// ---------------------------------------------------------------------------
+// Route 5: payment verification
+// ---------------------------------------------------------------------------
+const verifyPaymentDiscovery = declareDiscoveryExtension({
+  bodyType: "json",
+  input: {
+    txid: "ALGORAND_TRANSACTION_ID_52_CHARS",
+    expectedReceiver: "ALGORAND_ADDRESS_58_CHARS",
+    expectedAsset: "31566704",
+    expectedAmount: 0.02,
+  },
+  inputSchema: {
+    properties: {
+      txid: {
+        type: "string",
+        description: "Algorand transaction id to verify (52-character base32)",
+      },
+      expectedSender: {
+        type: "string",
+        description: "Optional. Address the funds should have come from.",
+      },
+      expectedReceiver: {
+        type: "string",
+        description: "Optional. Address the funds should have gone to.",
+      },
+      expectedAsset: {
+        type: "string",
+        description: "Optional. 'algo' for native ALGO, or an ASA id such as '31566704'.",
+      },
+      expectedAmount: {
+        type: "number",
+        description: "Optional. Amount in whole units (e.g. 0.02 USDC, not 20000).",
+      },
+      amountTolerance: {
+        type: "number",
+        description: "Optional. Absolute tolerance in whole units for the amount check. Default 0.",
+      },
+    },
+    required: ["txid"],
+  },
+  output: {
+    example: {
+      txid: "ALGORAND_TRANSACTION_ID_52_CHARS",
+      verified: true,
+      checks: {
+        receiver: {
+          expected: "ALGORAND_ADDRESS_58_CHARS",
+          actual: "ALGORAND_ADDRESS_58_CHARS",
+          match: true,
+        },
+        asset: { expected: "31566704", actual: "31566704", match: true },
+        amount: { expected: 0.02, actual: 0.02, match: true },
+      },
+      matchedTransfer: {
+        asset: "31566704",
+        assetName: "USDC",
+        amount: 0.02,
+        amountRaw: "20000",
+        from: "ALGORAND_ADDRESS_58_CHARS",
+        to: "ALGORAND_ADDRESS_58_CHARS",
+      },
+      confirmedRound: 63912660,
+      timestamp: "2026-08-09T19:30:21.000Z",
+    },
+  },
+});
+
 const routes = {
   "POST /api/inference": {
-    accepts: usdcPrice("0.01"), // $0.01
+    accepts: usdcPrice("0.02"), // $0.02
     description:
       "LLM text generation and completion: send a natural-language prompt (question, instruction, " +
       "draft, code, or classification task) and receive generated text back. No API key, no account, " +
@@ -189,7 +262,7 @@ const routes = {
     extensions: inferenceDiscovery,
   },
   "POST /api/summarize": {
-    accepts: usdcPrice("0.02"), // $0.02
+    accepts: usdcPrice("0.03"), // $0.03
     description:
       "Text summarization and condensation: send raw text up to 50,000 characters (article, " +
       "document, transcript, report, or thread) and receive a concise summary preserving key facts. " +
@@ -199,8 +272,20 @@ const routes = {
   },
   // Route-key path params use the middleware's [bracket] syntax (NOT Express ":param").
   // The Express handler below still registers the route as "/api/wallet-risk/:address".
+  "POST /api/verify-payment": {
+    accepts: usdcPrice("0.02"), // $0.02
+    description:
+      "Algorand payment verification and transaction assertion: given a transaction id plus " +
+      "what you expected (sender, receiver, asset, amount), returns a pass/fail verdict with " +
+      "a per-check breakdown of expected vs actual. Matches transfers across inner " +
+      "transactions, so payments routed through smart contracts and DEX swaps still verify. " +
+      "Supports an amount tolerance. Deterministic, no LLM. Built for autonomous agents that " +
+      "need to confirm a payment landed exactly as intended before acting on it. No API key " +
+      "or account — pay $0.02 per call in USDC.",
+    extensions: verifyPaymentDiscovery,
+  },
   "GET /api/wallet-risk/[address]": {
-    accepts: usdcPrice("0.015"), // $0.015
+    accepts: usdcPrice("0.03"), // $0.03
     description:
       "Algorand wallet risk scoring and address reputation: given an Algorand address, returns an " +
       "explainable 0-100 risk score, a risk level (low, medium, high), and the on-chain signals " +
@@ -209,19 +294,6 @@ const routes = {
       "indexer data, no LLM. Useful for agent counterparty checks, fraud screening, and KYC-style " +
       "address due diligence before transacting. No API key or account — pay $0.015 per call in USDC.",
     extensions: walletRiskDiscovery,
-  },
-  "GET /api/explain-tx/[txid]": {
-    accepts: usdcPrice("0.015"), // $0.015
-    description:
-      "Algorand transaction explainer and decoder: given a transaction id, returns a " +
-      "plain-language summary of what the transaction actually did, plus structured detail — " +
-      "transaction type, sender, every ALGO and ASA transfer with human-readable amounts and " +
-      "resolved asset names, application call id and inner transactions, fee, confirmation " +
-      "round, timestamp, and decoded note. Decodes DEX swaps and smart contract calls by " +
-      "walking inner transactions. Deterministic decoding of real Algorand indexer data, no " +
-      "LLM. Useful for agent transaction auditing, payment verification, and explaining " +
-      "on-chain activity to users. No API key or account — pay $0.015 per call in USDC.",
-    extensions: explainTxDiscovery,
   },
 };
 
@@ -300,6 +372,27 @@ app.get("/api/wallet-risk/:address", async (req, res) => {
   }
 });
 
+app.post("/api/verify-payment", async (req, res) => {
+  try {
+    const result = await verifyPayment(req.body || {});
+    res.json(result);
+  } catch (err) {
+    if (err instanceof InvalidVerifyRequestError) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err instanceof VerifyTxNotFoundError) {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err instanceof VerifyPaymentError) {
+      return res.status(502).json({ error: "Payment verification failed", detail: err.message });
+    }
+    throw err;
+  }
+});
+
+// FREE — deliberately registered outside the x402 `routes` map above, so it
+// returns JSON with no 402. This is the adoption funnel: a developer sees real
+// on-chain output with zero friction, then reaches for the paid tools around it.
 app.get("/api/explain-tx/:txid", async (req, res) => {
   try {
     const result = await explainTransaction(req.params.txid);

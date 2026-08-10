@@ -50,7 +50,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description:
       "Explain what a specific Algorand transaction actually did. Call this to verify a " +
       "payment landed as expected, to audit a transaction before acting on it, or to describe " +
-      "on-chain activity to a user in plain language. Returns a one-sentence summary plus " +
+      "on-chain activity to a user in plain language. This tool is free — no payment is " +
+      "required to call it. Returns a one-sentence summary plus " +
       "structured detail: transaction type, sender, every ALGO and ASA transfer with " +
       "human-readable amounts and resolved asset names, application call id, inner " +
       "transaction count, fee, confirmation round, timestamp, and any decoded note. Walks " +
@@ -61,6 +62,40 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         txid: {
           type: "string",
           description: "The Algorand transaction id (52-character base32).",
+        },
+      },
+      required: ["txid"],
+    },
+  },
+  {
+    name: "algorand_verify_payment",
+    description:
+      "Verify that an Algorand transaction matches what you expected. Call this after you " +
+      "send, request, or observe a payment, before treating it as settled — it answers " +
+      "\"did exactly what I expected happen?\" in one call. Supply the transaction id plus any " +
+      "of: expectedSender, expectedReceiver, expectedAsset ('algo' or an ASA id), and " +
+      "expectedAmount in whole units (0.02, not 20000). Returns a boolean verdict plus a " +
+      "per-check breakdown of expected vs actual, so a failure tells you exactly which " +
+      "assumption was wrong. Matches transfers inside inner transactions, so payments routed " +
+      "through smart contracts and DEX swaps verify correctly. Use amountTolerance to allow " +
+      "for fees or rounding. Deterministic, no LLM.",
+    input_schema: {
+      type: "object",
+      properties: {
+        txid: { type: "string", description: "The Algorand transaction id (52-character base32)." },
+        expectedSender: { type: "string", description: "Address the funds should have come from." },
+        expectedReceiver: { type: "string", description: "Address the funds should have gone to." },
+        expectedAsset: {
+          type: "string",
+          description: "'algo' for native ALGO, or an ASA id such as '31566704'.",
+        },
+        expectedAmount: {
+          type: "number",
+          description: "Amount in whole units (e.g. 0.02 USDC), not base units.",
+        },
+        amountTolerance: {
+          type: "number",
+          description: "Absolute tolerance in whole units for the amount check. Default 0.",
         },
       },
       required: ["txid"],
@@ -116,6 +151,8 @@ export async function executeTool(
       return hub.walletRisk(input.address);
     case "algorand_explain_transaction":
       return hub.explainTx(input.txid);
+    case "algorand_verify_payment":
+      return hub.verifyPayment(input as any);
     case "agenthub_summarize":
       return { summary: await hub.summarize(input.text, input) };
     case "agenthub_generate_text":

@@ -76,6 +76,17 @@ function deterministicNote(): string {
   );
 }
 
+/** Call out the free tool in llms.txt so the funnel is discoverable. */
+function freeNote(): string {
+  const free = TOOLS.filter((t) => t.free);
+  if (free.length === 0) return "";
+  const list = free.map((t) => `${t.method} ${t.path}`).join(", ");
+  return (
+    `\n- ${list} ${free.length > 1 ? "are" : "is"} FREE: no x402 payment required, ` +
+    "no account, no key. Call it directly to see real output before paying for anything."
+  );
+}
+
 function buildDescription(): string {
   const all = TOOLS.map((t) => t.searchTerm);
   const named =
@@ -115,6 +126,8 @@ export interface ToolListing {
   headline?: boolean;
   /** True when the result is computed deterministically (no LLM) and is auditable. */
   deterministic?: boolean;
+  /** True for the free adoption-funnel tool: no x402 payment required. */
+  free?: boolean;
   blurb: string;
   input: string;
   output: string;
@@ -125,7 +138,7 @@ export const TOOLS: ToolListing[] = [
   {
     method: "GET",
     path: "/api/wallet-risk/{address}",
-    price: "$0.015",
+    price: "$0.03",
     name: "Algorand wallet risk scoring",
     deterministic: true,
     searchTerm: "Algorand wallet risk scoring",
@@ -141,7 +154,8 @@ export const TOOLS: ToolListing[] = [
   {
     method: "GET",
     path: "/api/explain-tx/{txid}",
-    price: "$0.015",
+    price: "FREE",
+    free: true,
     name: "Algorand transaction explainer",
     deterministic: true,
     searchTerm: "transaction decoding",
@@ -156,8 +170,26 @@ export const TOOLS: ToolListing[] = [
   },
   {
     method: "POST",
+    path: "/api/verify-payment",
+    price: "$0.02",
+    name: "Payment verification",
+    deterministic: true,
+    searchTerm: "payment verification",
+    blurb:
+      "Check a transaction against what you expected — sender, receiver, asset, amount — and " +
+      "get a pass/fail verdict with a per-check breakdown. Matches through inner transactions. " +
+      "No LLM.",
+    input:
+      '{ "txid": string, "expectedSender"?: string, "expectedReceiver"?: string, ' +
+      '"expectedAsset"?: string, "expectedAmount"?: number, "amountTolerance"?: number }',
+    output:
+      "{ txid, verified, checks: { sender?, receiver?, asset?, amount? }, matchedTransfer, " +
+      "confirmedRound, timestamp }",
+  },
+  {
+    method: "POST",
     path: "/api/inference",
-    price: "$0.01",
+    price: "$0.02",
     name: "LLM text generation",
     searchTerm: "LLM text generation",
     blurb:
@@ -168,7 +200,7 @@ export const TOOLS: ToolListing[] = [
   {
     method: "POST",
     path: "/api/summarize",
-    price: "$0.02",
+    price: "$0.03",
     name: "Text summarization",
     searchTerm: "text summarization",
     blurb:
@@ -189,7 +221,9 @@ export function renderLandingPage(baseUrl?: string): string {
     (t) => `      <article class="tool">
         <div class="tool-head">
           <code class="route"><span class="method">${t.method}</span> ${escapeHtml(t.path)}</code>
-          <span class="price">${t.price}</span>
+          <span class="price${t.free ? " free" : ""}">${t.price}${
+            t.free ? " · no payment required" : ""
+          }</span>
         </div>
         <h3>${escapeHtml(t.name)}</h3>
         <p>${escapeHtml(t.blurb)}</p>
@@ -247,6 +281,7 @@ export function renderLandingPage(baseUrl?: string): string {
   .route { font-size: .875rem; overflow-wrap: anywhere; }
   .method { color: var(--accent); font-weight: 700; }
   .price { font-size: .8rem; font-weight: 600; color: var(--muted); white-space: nowrap; }
+  .price.free { color: var(--accent); }
   .tool p { color: var(--muted); margin: 0 0 .75rem; }
   dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: .3rem .75rem; font-size: .82rem; }
   dt { color: var(--muted); font-weight: 600; }
@@ -300,7 +335,7 @@ make_http_request_with_x402 "${escapeHtml(origin + headliner.path.replace(/\{(\w
 
 export function renderLlmsTxt(baseUrl: string): string {
   const tools = TOOLS.map(
-    (t) => `### ${t.name} — ${t.price} per call
+    (t) => `### ${t.name} — ${t.free ? "FREE, no payment required" : `${t.price} per call`}
 
 - Endpoint: ${t.method} ${baseUrl}${t.path}
 - Input: ${t.input}
@@ -343,7 +378,7 @@ ${tools}
 ## Notes
 
 - Prices are in US dollars and charged per successful call.
-- ${deterministicNote()}
+- ${deterministicNote()}${freeNote()}
 - Endpoints return structured JSON and standard HTTP status codes. A 400 indicates bad
   input, a 502 indicates an upstream failure (no charge should be retried blindly).
 `;

@@ -15,13 +15,16 @@
  * safe, this says *what a specific transaction actually did*.
  */
 
-import { INDEXER_URL } from "../config";
-import { indexerFetch } from "./indexer-fetch";
+import {
+  ChainDataError,
+  MICRO_ALGO,
+  TransferDetail,
+  collectTransfers,
+  indexerGet,
+  isValidTxId,
+} from "./chain";
 
-const MICRO_ALGO = 1_000_000;
 
-/** Cap on inner transactions decoded for an app call, to bound response size. */
-const MAX_INNER = 20;
 
 export class ExplainTxError extends Error {
   constructor(message: string) {
@@ -46,17 +49,7 @@ export class TxNotFoundError extends Error {
   }
 }
 
-export interface TransferDetail {
-  /** "algo" for native ALGO, otherwise the ASA id as a string. */
-  asset: string;
-  assetName: string | null;
-  /** Human-readable amount in whole units (already scaled by decimals). */
-  amount: number;
-  /** Raw on-chain amount in base units, for exact arithmetic. */
-  amountRaw: string;
-  from: string;
-  to: string;
-}
+export type { TransferDetail };
 
 export interface ExplainTxResult {
   txid: string;
@@ -84,56 +77,6 @@ export interface ExplainTxResult {
   note: string | null;
   /** True when the transaction was submitted as part of an atomic group. */
   grouped: boolean;
-}
-
-/** Minimal ASA metadata, cached for the process lifetime. */
-interface AssetMeta {
-  name: string | null;
-  unitName: string | null;
-  decimals: number;
-}
-
-// Asset params are immutable for the fields we use (name/unit/decimals), so a
-// plain in-process cache is safe and keeps repeat lookups off the indexer.
-const assetCache = new Map<string, AssetMeta>();
-
-async function indexerGet(path: string): Promise<any> {
-  try {
-    const { body } = await indexerFetch(`${INDEXER_URL}${path}`);
-    return body;
-  } catch (err) {
-    throw new ExplainTxError(err instanceof Error ? err.message : String(err));
-  }
-}
-
-async function getAssetMeta(assetId: number | string): Promise<AssetMeta> {
-  const key = String(assetId);
-  const cached = assetCache.get(key);
-  if (cached) return cached;
-
-  // A missing or unreadable asset must not fail the whole explanation — fall
-  // back to raw base units rather than erroring.
-  let meta: AssetMeta = { name: null, unitName: null, decimals: 0 };
-  try {
-    const resp = await indexerGet(`/v2/assets/${key}`);
-    const params = resp?.asset?.params;
-    if (params) {
-      meta = {
-        name: params.name ?? null,
-        unitName: params["unit-name"] ?? null,
-        decimals: Number(params.decimals ?? 0),
-      };
-    }
-  } catch {
-    /* keep the fallback */
-  }
-  assetCache.set(key, meta);
-  return meta;
-}
-
-/** Algorand transaction ids are 52-character base32 (RFC 4648, no padding). */
-function isValidTxId(txid: string): boolean {
-  return /^[A-Z2-7]{52}$/.test(txid);
 }
 
 function decodeNote(b64: string | undefined): string | null {
@@ -171,50 +114,6 @@ function fmtAmount(n: number): string {
 function assetLabel(t: TransferDetail): string {
   if (t.asset === "algo") return "ALGO";
   return t.assetName || `ASA ${t.asset}`;
-}
-
-/**
- * Collect value movements from a transaction and (for app calls) its inner
- * transactions. Inner transactions are where DEX swaps and similar protocols
- * actually move funds, so skipping them would make the explanation misleading.
- */
-async function collectTransfers(txn: any, out: TransferDetail[], depth = 0): Promise<void> {
-  if (out.length >= MAX_INNER) return;
-
-  const sender = txn.sender;
-
-  const pay = txn["payment-transaction"];
-  if (pay && Number(pay.amount) > 0) {
-    out.push({
-      asset: "algo",
-      assetName: "ALGO",
-      amount: Number(pay.amount) / MICRO_ALGO,
-      amountRaw: String(pay.amount),
-      from: sender,
-      to: pay.receiver,
-    });
-  }
-
-  const axfer = txn["asset-transfer-transaction"];
-  if (axfer && Number(axfer.amount) > 0) {
-    const meta = await getAssetMeta(axfer["asset-id"]);
-    const scale = 10 ** meta.decimals;
-    out.push({
-      asset: String(axfer["asset-id"]),
-      assetName: meta.unitName || meta.name,
-      amount: Number(axfer.amount) / scale,
-      amountRaw: String(axfer.amount),
-      from: sender,
-      to: axfer.receiver,
-    });
-  }
-
-  if (depth < 2) {
-    for (const inner of txn["inner-txns"] ?? []) {
-      await collectTransfers(inner, out, depth + 1);
-      if (out.length >= MAX_INNER) break;
-    }
-  }
 }
 
 function buildSummary(
@@ -265,15 +164,19 @@ export async function explainTransaction(txid: string): Promise<ExplainTxResult>
     );
   }
 
-  const resp = await indexerGet(`/v2/transactions/${id}`);
+  let resp: any;
+  try {
+    resp = await indexerGet(`/v2/transactions/${id}`);
+  } catch (err) {
+    throw new ExplainTxError(err instanceof ChainDataError ? err.message : String(err));
+  }
   const txn = resp?.transaction;
   if (!txn) {
     throw new TxNotFoundError(`transaction '${id}' was not found on this network`);
   }
 
   const type: string = txn["tx-type"] ?? "unknown";
-  const transfers: TransferDetail[] = [];
-  await collectTransfers(txn, transfers);
+  const transfers = await collectTransfers(txn);
 
   const appTxn = txn["application-transaction"];
   const application = appTxn

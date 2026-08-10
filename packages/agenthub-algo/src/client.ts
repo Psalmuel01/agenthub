@@ -68,6 +68,39 @@ export interface SummarizeOptions {
   style?: "concise" | "bullets" | "detailed";
 }
 
+export interface VerifyPaymentRequest {
+  txid: string;
+  expectedSender?: string;
+  expectedReceiver?: string;
+  /** "algo" for native ALGO, or an ASA id such as "31566704". */
+  expectedAsset?: string;
+  /** Whole units, e.g. 0.02 USDC — not base units. */
+  expectedAmount?: number;
+  /** Absolute tolerance in whole units. Default 0 (exact match). */
+  amountTolerance?: number;
+}
+
+export interface VerifyCheck<T> {
+  expected: T;
+  actual: T | null;
+  match: boolean;
+}
+
+export interface VerifyPaymentResult {
+  txid: string;
+  /** AND of every check you requested. */
+  verified: boolean;
+  checks: {
+    sender?: VerifyCheck<string>;
+    receiver?: VerifyCheck<string>;
+    asset?: VerifyCheck<string>;
+    amount?: VerifyCheck<number>;
+  };
+  matchedTransfer: TransferDetail | null;
+  confirmedRound: number;
+  timestamp: string | null;
+}
+
 /** Thrown when a request fails for a non-payment reason (bad input, upstream error). */
 export class AgentHubError extends Error {
   readonly status: number;
@@ -109,10 +142,19 @@ export class AgentHub {
 
   /**
    * Explain what an Algorand transaction did, in plain language plus structured
-   * detail. $0.015 per call.
+   * detail. **Free** — no payment required.
    */
   explainTx(txid: string): Promise<ExplainTxResult> {
     return this.call<ExplainTxResult>("GET", `/api/explain-tx/${txid}`);
+  }
+
+  /**
+   * Check a transaction against what you expected (sender, receiver, asset,
+   * amount) and get a pass/fail verdict with a per-check breakdown. $0.02 per
+   * call.
+   */
+  verifyPayment(req: VerifyPaymentRequest): Promise<VerifyPaymentResult> {
+    return this.call<VerifyPaymentResult>("POST", "/api/verify-payment", req);
   }
 
   /** Generate text from a prompt. $0.01 per call. */
