@@ -31,6 +31,11 @@ import {
   ExplainTxError,
 } from "./services/explain-tx";
 import {
+  checkRelationship,
+  InvalidRelationshipQueryError,
+  RelationshipError,
+} from "./services/relationship";
+import {
   getPortfolio,
   InvalidPortfolioAddressError,
   PortfolioError,
@@ -295,6 +300,36 @@ const assetRiskDiscovery = declareDiscoveryExtension({
   },
 });
 
+// ---------------------------------------------------------------------------
+// Route 7: address relationship check
+// ---------------------------------------------------------------------------
+const relationshipDiscovery = declareDiscoveryExtension({
+  input: { a: "ALGORAND_ADDRESS_58_CHARS", b: "ALGORAND_ADDRESS_58_CHARS" },
+  inputSchema: {
+    properties: {
+      a: { type: "string", description: "First Algorand address (query parameter)" },
+      b: { type: "string", description: "Second Algorand address (query parameter)" },
+    },
+    required: ["a", "b"],
+  },
+  output: {
+    example: {
+      addressA: "ALGORAND_ADDRESS_58_CHARS",
+      addressB: "ALGORAND_ADDRESS_58_CHARS",
+      haveTransacted: true,
+      txCount: 42,
+      totalMoved: [
+        { asset: "algo", assetName: "ALGO", amount: 10, aToB: 0, bToA: 10 },
+        { asset: "31566704", assetName: "USDC", amount: 0.63, aToB: 0.63, bToA: 0 },
+      ],
+      firstInteraction: "2026-08-09T17:29:27.000Z",
+      lastInteraction: "2026-08-10T05:46:33.000Z",
+      scanned: 59,
+      windowComplete: true,
+    },
+  },
+});
+
 const routes = {
   "POST /api/inference": {
     accepts: usdcPrice("0.02"), // $0.02
@@ -339,6 +374,18 @@ const routes = {
       "real Algorand indexer data, no LLM. Run it before accepting, holding, or swapping an " +
       "unfamiliar token. No API key or account — pay $0.03 per call in USDC.",
     extensions: assetRiskDiscovery,
+  },
+  "GET /api/relationship": {
+    accepts: usdcPrice("0.03"), // $0.03
+    description:
+      "Algorand address relationship and counterparty history: given two addresses as query " +
+      "parameters a and b, returns whether they have transacted, how many transactions " +
+      "between them, total value moved per asset broken down by direction, and first and last " +
+      "interaction timestamps. Matches through inner transactions, so activity routed via " +
+      "smart contracts is counted. Deterministic analysis of real Algorand indexer data, no " +
+      "LLM. Useful for verifying a claimed relationship or reviewing counterparty history " +
+      "before a deal. No API key or account — pay $0.03 per call in USDC.",
+    extensions: relationshipDiscovery,
   },
   "GET /api/explain-tx/[txid]": {
     accepts: usdcPrice("0.03"), // $0.03
@@ -474,6 +521,21 @@ app.get("/api/portfolio/:address", async (req, res) => {
     }
     if (err instanceof PortfolioError) {
       return res.status(502).json({ error: "Portfolio lookup failed", detail: err.message });
+    }
+    throw err;
+  }
+});
+
+app.get("/api/relationship", async (req, res) => {
+  try {
+    const result = await checkRelationship(String(req.query.a ?? ""), String(req.query.b ?? ""));
+    res.json(result);
+  } catch (err) {
+    if (err instanceof InvalidRelationshipQueryError) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err instanceof RelationshipError) {
+      return res.status(502).json({ error: "Relationship lookup failed", detail: err.message });
     }
     throw err;
   }

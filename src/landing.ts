@@ -200,6 +200,21 @@ export const TOOLS: ToolListing[] = [
       "amountRaw, decimals, isFrozen }], assetCount, truncated, priced }",
   },
   {
+    method: "GET",
+    path: "/api/relationship?a={addressA}&b={addressB}",
+    price: "$0.03",
+    name: "Address relationship check",
+    deterministic: true,
+    searchTerm: "address relationship history",
+    blurb:
+      "Have two Algorand addresses transacted? Returns transaction count, value moved per " +
+      "asset in each direction, and first/last interaction timestamps. No LLM.",
+    input: "Two Algorand addresses as query parameters: a and b.",
+    output:
+      "{ addressA, addressB, haveTransacted, txCount, totalMoved: [{ asset, assetName, " +
+      "amount, aToB, bToA }], firstInteraction, lastInteraction, scanned, windowComplete }",
+  },
+  {
     method: "POST",
     path: "/api/verify-payment",
     price: "$0.02",
