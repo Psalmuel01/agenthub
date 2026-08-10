@@ -1,7 +1,7 @@
 {
   "name": "agenthub-algo",
-  "version": "0.1.1",
-  "description": "Pay-per-call Algorand wallet risk scoring, transaction explanation, and LLM tools for AI agents. No API key or account \u2014 agents pay per request in USDC over x402.",
+  "version": "0.2.0",
+  "description": "Pay-per-call Algorand on-chain intelligence for AI agents: wallet risk scoring, transaction decoding, payment verification, ASA scam screening, portfolio, and address relationships. No API key or account \u2014 agents pay per request in USDC over x402.",
   "keywords": [
     "algorand",
     "x402",
@@ -14,7 +14,12 @@
     "mcp",
     "anthropic",
     "openai",
-    "tool-calling"
+    "tool-calling",
+    "payment-verification",
+    "asa",
+    "token-risk",
+    "portfolio",
+    "defi"
   ],
   "license": "MIT",
   "repository": {

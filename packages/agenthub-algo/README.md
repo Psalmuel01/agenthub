@@ -56,12 +56,20 @@ OpenAI function calling works the same way with `openaiTools()`.
 
 | Method | Price | Returns |
 |---|---|---|
-| `walletRisk(address)` | $0.015 | 0–100 risk score, level, and the six on-chain signals behind it |
-| `explainTx(txid)` | $0.015 | Plain-language summary plus every transfer, decoded app calls, fee, timestamp |
-| `summarize(text, opts?)` | $0.02 | Concise summary of up to 50,000 characters |
-| `inference(prompt)` | $0.01 | Generated text |
+| `portfolio(address)` | **FREE** | Every holding — ALGO plus each ASA with resolved names, largest first |
+| `walletRisk(address)` | $0.03 | 0–100 risk score, level, and the six on-chain signals behind it |
+| `explainTx(txid)` | $0.03 | Plain-language summary plus every transfer, decoded app calls, fee |
+| `assetRisk(asaId)` | $0.03 | Scam/rug screen: clawback, freeze, mutable supply, holder concentration |
+| `relationship(a, b)` | $0.03 | Whether two addresses transacted, value moved per asset per direction |
+| `verifyPayment({...})` | $0.02 | Pass/fail verdict that a transaction matched your expectations |
+| `assetInfo(asaId)` | $0.02 | ASA name, decimals, real circulating supply, config flags |
+| `inference(prompt)` | $0.02 | Generated text |
+| `summarize(text, opts?)` | $0.03 | Concise summary of up to 50,000 characters |
 
-The two Algorand tools are **deterministic** — no LLM, no opaque judgment. They read the
+Start with `portfolio()` — it is free, needs no wallet, and returns the addresses and
+asset ids the paid tools take as input.
+
+The Algorand tools are all **deterministic** — no LLM, no opaque judgment. They read the
 public indexer and return every signal behind the answer, so your agent can act on the
 reasoning rather than trusting a number.
 

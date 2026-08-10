@@ -50,8 +50,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description:
       "Explain what a specific Algorand transaction actually did. Call this to verify a " +
       "payment landed as expected, to audit a transaction before acting on it, or to describe " +
-      "on-chain activity to a user in plain language. This tool is free — no payment is " +
-      "required to call it. Returns a one-sentence summary plus " +
+      "on-chain activity to a user in plain language. Returns a one-sentence summary plus " +
       "structured detail: transaction type, sender, every ALGO and ASA transfer with " +
       "human-readable amounts and resolved asset names, application call id, inner " +
       "transaction count, fee, confirmation round, timestamp, and any decoded note. Walks " +
@@ -99,6 +98,77 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         },
       },
       required: ["txid"],
+    },
+  },
+  {
+    name: "algorand_asset_risk",
+    description:
+      "Screen an Algorand Standard Asset (ASA) for scam and rug-pull risk before accepting, " +
+      "holding, or swapping it. Call this whenever an unfamiliar token is involved — offered " +
+      "in a trade, received unexpectedly, or named by a user. Returns a 0-100 risk score " +
+      "(higher is riskier), a level, and the signals behind it: whether the creator can claw " +
+      "back or freeze tokens, whether holdings default to frozen, whether supply is still " +
+      "mutable, what share of circulating supply the largest holder controls, and how old the " +
+      "creator account is. Act on the signals, not just the score — clawback enabled is the " +
+      "single most important flag. Deterministic, no LLM.",
+    input_schema: {
+      type: "object",
+      properties: {
+        asaId: { type: "string", description: "The Algorand Standard Asset id, e.g. '31566704'." },
+      },
+      required: ["asaId"],
+    },
+  },
+  {
+    name: "algorand_asset_info",
+    description:
+      "Look up what an Algorand Standard Asset actually is: name, unit name, decimals, " +
+      "declared total supply, real circulating supply (total minus unissued reserve), creator, " +
+      "project url, whether it has been destroyed, and its configuration flags. Call this to " +
+      "identify an unknown ASA id, or to get decimals before formatting an amount. Note: price " +
+      "data is NOT included — the price field is always null for now, so do not use this to " +
+      "value a holding.",
+    input_schema: {
+      type: "object",
+      properties: {
+        asaId: { type: "string", description: "The Algorand Standard Asset id, e.g. '31566704'." },
+      },
+      required: ["asaId"],
+    },
+  },
+  {
+    name: "algorand_portfolio",
+    description:
+      "Get every holding for an Algorand address in one call: ALGO balance plus each ASA with " +
+      "its resolved name and decimals-corrected amount, largest first. Call this when you need " +
+      "to know what an address owns — before advising on it, monitoring it, or deciding what " +
+      "to examine next. Amounts are quantities only; no USD values are returned. This tool is " +
+      "free — no payment is required to call it.",
+    input_schema: {
+      type: "object",
+      properties: {
+        address: { type: "string", description: "The Algorand address (58 characters)." },
+      },
+      required: ["address"],
+    },
+  },
+  {
+    name: "algorand_address_relationship",
+    description:
+      "Check whether two Algorand addresses have transacted with each other, and what moved. " +
+      "Call this to verify a claimed relationship between parties, or to review counterparty " +
+      "history before agreeing to a deal. Returns whether they have transacted, how many " +
+      "transactions, total value moved per asset broken down by direction (a-to-b and " +
+      "b-to-a), and first and last interaction timestamps. Note the scan is bounded: check " +
+      "`windowComplete` — when false, a 'have not transacted' result only covers the scanned " +
+      "window, not all history.",
+    input_schema: {
+      type: "object",
+      properties: {
+        a: { type: "string", description: "First Algorand address (58 characters)." },
+        b: { type: "string", description: "Second Algorand address (58 characters)." },
+      },
+      required: ["a", "b"],
     },
   },
   {
@@ -153,6 +223,14 @@ export async function executeTool(
       return hub.explainTx(input.txid);
     case "algorand_verify_payment":
       return hub.verifyPayment(input as any);
+    case "algorand_asset_risk":
+      return hub.assetRisk(input.asaId);
+    case "algorand_asset_info":
+      return hub.assetInfo(input.asaId);
+    case "algorand_portfolio":
+      return hub.portfolio(input.address);
+    case "algorand_address_relationship":
+      return hub.relationship(input.a, input.b);
     case "agenthub_summarize":
       return { summary: await hub.summarize(input.text, input) };
     case "agenthub_generate_text":

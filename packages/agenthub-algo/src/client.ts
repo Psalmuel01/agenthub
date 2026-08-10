@@ -101,6 +101,88 @@ export interface VerifyPaymentResult {
   timestamp: string | null;
 }
 
+
+export interface AssetRiskResult {
+  asaId: string;
+  name: string | null;
+  unitName: string | null;
+  creator: string;
+  riskScore: number;
+  riskLevel: "low" | "medium" | "high";
+  signals: {
+    clawbackEnabled: boolean;
+    freezeEnabled: boolean;
+    defaultFrozen: boolean;
+    managerCanReconfigure: boolean;
+    topHolderPct: number | null;
+    holdersSampled: number;
+    concentrationExact: boolean;
+    creatorAgeDays: number | null;
+  };
+}
+
+export interface AssetInfoResult {
+  asaId: string;
+  name: string | null;
+  unitName: string | null;
+  decimals: number;
+  totalSupply: number;
+  totalSupplyRaw: string;
+  circulatingSupply: number;
+  url: string | null;
+  creator: string;
+  destroyed: boolean;
+  config: {
+    hasManager: boolean;
+    hasFreeze: boolean;
+    hasClawback: boolean;
+    hasReserve: boolean;
+    defaultFrozen: boolean;
+  };
+  /** Null until a verified price source is wired upstream. */
+  price: { usd: number; source: string; asOf: string } | null;
+  priceError: string | null;
+}
+
+export interface PortfolioAsset {
+  asaId: string;
+  name: string | null;
+  unitName: string | null;
+  amount: number;
+  amountRaw: string;
+  decimals: number;
+  isFrozen: boolean;
+}
+
+export interface PortfolioResult {
+  address: string;
+  algo: { amount: number; amountRaw: string };
+  assets: PortfolioAsset[];
+  assetCount: number;
+  truncated: boolean;
+  priced: boolean;
+}
+
+export interface MovedAmount {
+  asset: string;
+  assetName: string | null;
+  amount: number;
+  aToB: number;
+  bToA: number;
+}
+
+export interface RelationshipResult {
+  addressA: string;
+  addressB: string;
+  haveTransacted: boolean;
+  txCount: number;
+  totalMoved: MovedAmount[];
+  firstInteraction: string | null;
+  lastInteraction: string | null;
+  scanned: number;
+  windowComplete: boolean;
+}
+
 /** Thrown when a request fails for a non-payment reason (bad input, upstream error). */
 export class AgentHubError extends Error {
   readonly status: number;
@@ -134,7 +216,7 @@ export class AgentHub {
 
   /**
    * Score an Algorand address for risk. Returns a 0-100 score, a level, and the
-   * on-chain signals behind it. $0.015 per call.
+   * on-chain signals behind it. $0.03 per call.
    */
   walletRisk(address: string): Promise<WalletRiskResult> {
     return this.call<WalletRiskResult>("GET", `/api/wallet-risk/${address}`);
@@ -142,7 +224,7 @@ export class AgentHub {
 
   /**
    * Explain what an Algorand transaction did, in plain language plus structured
-   * detail. **Free** — no payment required.
+   * detail. $0.03 per call.
    */
   explainTx(txid: string): Promise<ExplainTxResult> {
     return this.call<ExplainTxResult>("GET", `/api/explain-tx/${txid}`);
@@ -157,13 +239,49 @@ export class AgentHub {
     return this.call<VerifyPaymentResult>("POST", "/api/verify-payment", req);
   }
 
-  /** Generate text from a prompt. $0.01 per call. */
+
+  /**
+   * Score an Algorand Standard Asset for scam/rug risk before accepting it.
+   * $0.03 per call.
+   */
+  assetRisk(asaId: string | number): Promise<AssetRiskResult> {
+    return this.call<AssetRiskResult>("GET", `/api/asset-risk/${asaId}`);
+  }
+
+  /**
+   * Metadata and supply for an Algorand Standard Asset. `price` is currently
+   * always null — no verified price source is wired yet. $0.02 per call.
+   */
+  assetInfo(asaId: string | number): Promise<AssetInfoResult> {
+    return this.call<AssetInfoResult>("GET", `/api/asset/${asaId}`);
+  }
+
+  /**
+   * Every holding for an address — ALGO plus each ASA, largest first.
+   * **Free** — no payment required.
+   */
+  portfolio(address: string): Promise<PortfolioResult> {
+    return this.call<PortfolioResult>("GET", `/api/portfolio/${address}`);
+  }
+
+  /**
+   * Whether two addresses have transacted, how many times, and how much moved
+   * in each direction. $0.03 per call.
+   */
+  relationship(a: string, b: string): Promise<RelationshipResult> {
+    return this.call<RelationshipResult>(
+      "GET",
+      `/api/relationship?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`,
+    );
+  }
+
+  /** Generate text from a prompt. $0.02 per call. */
   async inference(prompt: string): Promise<string> {
     const r = await this.call<{ response: string }>("POST", "/api/inference", { prompt });
     return r.response;
   }
 
-  /** Summarize text (up to 50,000 characters). $0.02 per call. */
+  /** Summarize text (up to 50,000 characters). $0.03 per call. */
   async summarize(text: string, opts: SummarizeOptions = {}): Promise<string> {
     const r = await this.call<{ summary: string }>("POST", "/api/summarize", {
       text,
