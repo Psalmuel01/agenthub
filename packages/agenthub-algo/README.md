@@ -14,6 +14,10 @@ import { AgentHub } from "agenthub-algo";
 
 const hub = new AgentHub({ mnemonic: process.env.ALGORAND_MNEMONIC! });
 
+// Free — no payment, no wallet needed for this one.
+const holdings = await hub.portfolio("ZW3ISEHZUHPO7OZGMKLKIIMKVICOUDRCERI454I3DB2BH52HGLSO67W754");
+
+// Paid — $0.03, settles a USDC micropayment inside the call.
 const risk = await hub.walletRisk("ZW3ISEHZUHPO7OZGMKLKIIMKVICOUDRCERI454I3DB2BH52HGLSO67W754");
 // { riskScore: 8, riskLevel: "low", signals: { accountAgeDays: 1789, txCount: 100, ... } }
 
@@ -24,7 +28,9 @@ That's the whole integration. The 402 handshake, payment signing, and settlement
 inside the call.
 
 **You need:** an Algorand wallet with a little USDC (ASA `31566704`) and ALGO for fees,
-opted in to USDC. At $0.015 a call, $1 is ~66 lookups.
+opted in to USDC. At $0.03 a call, $1 is ~33 lookups.
+
+**Or start with `portfolio()` — it is free and needs no wallet at all.**
 
 ## Give the tools to a model
 
