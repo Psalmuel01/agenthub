@@ -20,11 +20,12 @@ const FAVICON =
       ` font-weight="700" fill="#00d3a7" text-anchor="middle">A</text></svg>`,
   );
 
-const TITLE = "AgentHub — pay-per-call tools for AI agents on Algorand";
+const TITLE =
+  "AgentHub — Algorand wallet risk scoring & transaction decoding for AI agents, pay-per-call";
 const DESCRIPTION =
-  "Three x402 micropayment APIs for AI agents: Algorand wallet risk scoring, LLM text " +
-  "generation, and text summarization. No accounts, no API keys, no subscriptions — " +
-  "agents pay per request in USDC on Algorand mainnet.";
+  "Four x402 micropayment APIs for AI agents: Algorand wallet risk scoring, Algorand " +
+  "transaction explanation, LLM text generation, and text summarization. No accounts, no " +
+  "API keys, no subscriptions — agents pay per request in USDC on Algorand mainnet.";
 
 export interface ToolListing {
   method: string;
