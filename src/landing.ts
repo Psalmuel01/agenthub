@@ -20,18 +20,85 @@ const FAVICON =
       ` font-weight="700" fill="#00d3a7" text-anchor="middle">A</text></svg>`,
   );
 
-const TITLE =
-  "AgentHub — Algorand wallet risk scoring & transaction decoding for AI agents, pay-per-call";
-const DESCRIPTION =
-  "Four x402 micropayment APIs for AI agents: Algorand wallet risk scoring, Algorand " +
-  "transaction explanation, LLM text generation, and text summarization. No accounts, no " +
-  "API keys, no subscriptions — agents pay per request in USDC on Algorand mainnet.";
+/**
+ * Title and description are derived from TOOLS so adding an endpoint updates the
+ * merchant record automatically. The facilitator scrapes these for the Bazaar
+ * listing, and `bazaar_search` matches on them, so a stale count or a missing
+ * tool name is a real discoverability cost — not just a typo.
+ *
+ * `headline` on the first two TOOLS entries drives the title, so the differentiated
+ * on-chain tools stay in front regardless of how many commodity ones we add.
+ */
+const COUNT_WORDS = [
+  "No",
+  "One",
+  "Two",
+  "Three",
+  "Four",
+  "Five",
+  "Six",
+  "Seven",
+  "Eight",
+  "Nine",
+  "Ten",
+];
+
+function countWord(n: number): string {
+  return COUNT_WORDS[n] ?? String(n);
+}
+
+function buildTitle(): string {
+  const headliners = TOOLS.filter((t) => t.headline).map((t) => t.searchTerm);
+  const lead = headliners.length
+    ? headliners.join(" & ")
+    : TOOLS.map((t) => t.searchTerm).join(" & ");
+  return `AgentHub — ${lead} for AI agents, pay-per-call`;
+}
+
+/**
+ * Naming every tool stops working once there are many: the sentence becomes a
+ * wall and the distinctive search terms get buried. Past this many, name the
+ * headline tools and summarise the rest.
+ */
+const MAX_NAMED_IN_DESCRIPTION = 6;
+
+function buildDescription(): string {
+  const all = TOOLS.map((t) => t.searchTerm);
+  const named =
+    all.length <= MAX_NAMED_IN_DESCRIPTION
+      ? all
+      : [
+          // Keep the differentiated tools visible, then fill to the cap.
+          ...TOOLS.filter((t) => t.headline).map((t) => t.searchTerm),
+          ...TOOLS.filter((t) => !t.headline).map((t) => t.searchTerm),
+        ].slice(0, MAX_NAMED_IN_DESCRIPTION);
+
+  const list =
+    named.length > 1
+      ? `${named.slice(0, -1).join(", ")}, and ${named[named.length - 1]}`
+      : named[0];
+  const remainder = all.length - named.length;
+  const tail = remainder > 0 ? `, plus ${remainder} more` : "";
+
+  return (
+    `${countWord(TOOLS.length)} x402 micropayment APIs for AI agents: ${list}${tail}. ` +
+    "No accounts, no API keys, no subscriptions — agents pay per request in USDC on " +
+    "Algorand mainnet."
+  );
+}
 
 export interface ToolListing {
   method: string;
   path: string;
   price: string;
   name: string;
+  /**
+   * Short noun phrase used in the merchant title/description — write it the way
+   * an agent would search for the capability, e.g. "Algorand wallet risk scoring".
+   */
+  searchTerm: string;
+  /** Lead the merchant title with this tool. Reserve for differentiated supply. */
+  headline?: boolean;
   blurb: string;
   input: string;
   output: string;
@@ -44,6 +111,8 @@ export const TOOLS: ToolListing[] = [
     path: "/api/wallet-risk/{address}",
     price: "$0.015",
     name: "Algorand wallet risk scoring",
+    searchTerm: "Algorand wallet risk scoring",
+    headline: true,
     blurb:
       "Explainable 0-100 risk score for any Algorand address, computed from real on-chain " +
       "indexer data. No LLM — deterministic and auditable.",
@@ -57,6 +126,8 @@ export const TOOLS: ToolListing[] = [
     path: "/api/explain-tx/{txid}",
     price: "$0.015",
     name: "Algorand transaction explainer",
+    searchTerm: "transaction decoding",
+    headline: true,
     blurb:
       "Turn a transaction id into a plain-language summary plus structured detail — every " +
       "transfer with resolved asset names, decoded app calls and inner transactions. No LLM.",
@@ -70,6 +141,7 @@ export const TOOLS: ToolListing[] = [
     path: "/api/inference",
     price: "$0.01",
     name: "LLM text generation",
+    searchTerm: "LLM text generation",
     blurb:
       "Send a natural-language prompt, receive generated text. Powered by Claude Haiku 4.5.",
     input: '{ "prompt": string (max 8000 chars) }',
@@ -80,6 +152,7 @@ export const TOOLS: ToolListing[] = [
     path: "/api/summarize",
     price: "$0.02",
     name: "Text summarization",
+    searchTerm: "text summarization",
     blurb:
       "Condense up to 50,000 characters into a concise summary, with optional length and style " +
       "control.",
@@ -111,15 +184,15 @@ export function renderLandingPage(): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(TITLE)}</title>
-<meta name="description" content="${escapeHtml(DESCRIPTION)}">
+<title>${escapeHtml(buildTitle())}</title>
+<meta name="description" content="${escapeHtml(buildDescription())}">
 <link rel="icon" href="${FAVICON}">
 <meta property="og:type" content="website">
-<meta property="og:title" content="${escapeHtml(TITLE)}">
-<meta property="og:description" content="${escapeHtml(DESCRIPTION)}">
+<meta property="og:title" content="${escapeHtml(buildTitle())}">
+<meta property="og:description" content="${escapeHtml(buildDescription())}">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="${escapeHtml(TITLE)}">
-<meta name="twitter:description" content="${escapeHtml(DESCRIPTION)}">
+<meta name="twitter:title" content="${escapeHtml(buildTitle())}">
+<meta name="twitter:description" content="${escapeHtml(buildDescription())}">
 <style>
   :root {
     --bg: #ffffff; --fg: #16161a; --muted: #5c5c6b; --line: #e4e4ec;
@@ -216,7 +289,7 @@ export function renderLlmsTxt(baseUrl: string): string {
 
   return `# AgentHub
 
-> ${DESCRIPTION}
+> ${buildDescription()}
 
 AgentHub is a marketplace of pay-per-call microservices for AI agents, built on the x402
 payment protocol and settling in USDC on Algorand mainnet. There are no accounts, no API
