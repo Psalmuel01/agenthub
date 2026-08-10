@@ -31,6 +31,12 @@ import {
   ExplainTxError,
 } from "./services/explain-tx";
 import {
+  scoreAsset,
+  InvalidAsaIdError,
+  AssetNotFoundError,
+  AssetRiskError,
+} from "./services/asset-risk";
+import {
   verifyPayment,
   InvalidVerifyRequestError,
   VerifyTxNotFoundError,
@@ -251,6 +257,39 @@ const verifyPaymentDiscovery = declareDiscoveryExtension({
   },
 });
 
+// ---------------------------------------------------------------------------
+// Route 6: ASA risk / scam screen
+// ---------------------------------------------------------------------------
+const assetRiskDiscovery = declareDiscoveryExtension({
+  input: { asaId: "31566704" },
+  inputSchema: {
+    properties: {
+      asaId: { type: "string", description: "Algorand Standard Asset id, e.g. 31566704" },
+    },
+    required: ["asaId"],
+  },
+  output: {
+    example: {
+      asaId: "31566704",
+      name: "USDC",
+      unitName: "USDC",
+      creator: "ALGORAND_ADDRESS_58_CHARS",
+      riskScore: 50,
+      riskLevel: "medium",
+      signals: {
+        clawbackEnabled: false,
+        freezeEnabled: true,
+        defaultFrozen: false,
+        managerCanReconfigure: true,
+        topHolderPct: 79.6,
+        holdersSampled: 18,
+        concentrationExact: false,
+        creatorAgeDays: 1786,
+      },
+    },
+  },
+});
+
 const routes = {
   "POST /api/inference": {
     accepts: usdcPrice("0.02"), // $0.02
@@ -283,6 +322,31 @@ const routes = {
       "need to confirm a payment landed exactly as intended before acting on it. No API key " +
       "or account — pay $0.02 per call in USDC.",
     extensions: verifyPaymentDiscovery,
+  },
+  "GET /api/asset-risk/[asaId]": {
+    accepts: usdcPrice("0.03"), // $0.03
+    description:
+      "Algorand ASA risk scoring and scam token screening: given an Algorand Standard Asset " +
+      "id, returns an explainable 0-100 risk score, a risk level, and the on-chain signals " +
+      "behind it — whether clawback or freeze is enabled, whether holdings default to frozen, " +
+      "whether the manager can still reconfigure supply, largest-holder concentration as a " +
+      "share of circulating supply, and the creator account's age. Deterministic analysis of " +
+      "real Algorand indexer data, no LLM. Run it before accepting, holding, or swapping an " +
+      "unfamiliar token. No API key or account — pay $0.03 per call in USDC.",
+    extensions: assetRiskDiscovery,
+  },
+  "GET /api/explain-tx/[txid]": {
+    accepts: usdcPrice("0.03"), // $0.03
+    description:
+      "Algorand transaction explainer and decoder: given a transaction id, returns a " +
+      "plain-language summary of what the transaction actually did, plus structured detail — " +
+      "transaction type, sender, every ALGO and ASA transfer with human-readable amounts and " +
+      "resolved asset names, application call id and inner transactions, fee, confirmation " +
+      "round, timestamp, and decoded note. Decodes DEX swaps and smart contract calls by " +
+      "walking inner transactions. Deterministic decoding of real Algorand indexer data, no " +
+      "LLM. Useful for agent transaction auditing, payment verification, and explaining " +
+      "on-chain activity to users. No API key or account — pay $0.03 per call in USDC.",
+    extensions: explainTxDiscovery,
   },
   "GET /api/wallet-risk/[address]": {
     accepts: usdcPrice("0.03"), // $0.03
@@ -390,9 +454,24 @@ app.post("/api/verify-payment", async (req, res) => {
   }
 });
 
-// FREE — deliberately registered outside the x402 `routes` map above, so it
-// returns JSON with no 402. This is the adoption funnel: a developer sees real
-// on-chain output with zero friction, then reaches for the paid tools around it.
+app.get("/api/asset-risk/:asaId", async (req, res) => {
+  try {
+    const result = await scoreAsset(req.params.asaId);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof InvalidAsaIdError) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err instanceof AssetNotFoundError) {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err instanceof AssetRiskError) {
+      return res.status(502).json({ error: "Asset risk analysis failed", detail: err.message });
+    }
+    throw err;
+  }
+});
+
 app.get("/api/explain-tx/:txid", async (req, res) => {
   try {
     const result = await explainTransaction(req.params.txid);

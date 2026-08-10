@@ -154,8 +154,7 @@ export const TOOLS: ToolListing[] = [
   {
     method: "GET",
     path: "/api/explain-tx/{txid}",
-    price: "FREE",
-    free: true,
+    price: "$0.03",
     name: "Algorand transaction explainer",
     deterministic: true,
     searchTerm: "transaction decoding",
@@ -167,6 +166,22 @@ export const TOOLS: ToolListing[] = [
     output:
       "{ txid, type, typeLabel, summary, sender, confirmedRound, timestamp, feeAlgo, " +
       "transfers: [{ asset, assetName, amount, amountRaw, from, to }], application, note, grouped }",
+  },
+  {
+    method: "GET",
+    path: "/api/asset-risk/{asaId}",
+    price: "$0.03",
+    name: "ASA risk / scam screen",
+    deterministic: true,
+    searchTerm: "Algorand token risk screening",
+    blurb:
+      "Explainable 0-100 risk score for any Algorand Standard Asset: clawback and freeze " +
+      "powers, mutable supply, largest-holder concentration, and creator age. No LLM.",
+    input: "An Algorand Standard Asset id (numeric) in the URL path.",
+    output:
+      "{ asaId, name, unitName, creator, riskScore, riskLevel, signals: { clawbackEnabled, " +
+      "freezeEnabled, defaultFrozen, managerCanReconfigure, topHolderPct, holdersSampled, " +
+      "concentrationExact, creatorAgeDays } }",
   },
   {
     method: "POST",
