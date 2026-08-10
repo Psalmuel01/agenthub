@@ -31,6 +31,12 @@ import {
   ExplainTxError,
 } from "./services/explain-tx";
 import {
+  getAssetInfo,
+  InvalidAssetIdError,
+  AssetInfoNotFoundError,
+  AssetInfoError,
+} from "./services/asset-info";
+import {
   checkRelationship,
   InvalidRelationshipQueryError,
   RelationshipError,
@@ -330,6 +336,42 @@ const relationshipDiscovery = declareDiscoveryExtension({
   },
 });
 
+// ---------------------------------------------------------------------------
+// Route 8: ASA metadata (price deferred — see services/asset-info.ts)
+// ---------------------------------------------------------------------------
+const assetInfoDiscovery = declareDiscoveryExtension({
+  input: { asaId: "31566704" },
+  inputSchema: {
+    properties: {
+      asaId: { type: "string", description: "Algorand Standard Asset id, e.g. 31566704" },
+    },
+    required: ["asaId"],
+  },
+  output: {
+    example: {
+      asaId: "31566704",
+      name: "USDC",
+      unitName: "USDC",
+      decimals: 6,
+      totalSupply: 18446744073709.55,
+      totalSupplyRaw: "18446744073709551615",
+      circulatingSupply: 192609566.1,
+      url: "https://www.centre.io/usdc",
+      creator: "ALGORAND_ADDRESS_58_CHARS",
+      destroyed: false,
+      config: {
+        hasManager: true,
+        hasFreeze: true,
+        hasClawback: false,
+        hasReserve: true,
+        defaultFrozen: false,
+      },
+      price: null,
+      priceError: "no verified price source configured",
+    },
+  },
+});
+
 const routes = {
   "POST /api/inference": {
     accepts: usdcPrice("0.02"), // $0.02
@@ -386,6 +428,18 @@ const routes = {
       "LLM. Useful for verifying a claimed relationship or reviewing counterparty history " +
       "before a deal. No API key or account — pay $0.03 per call in USDC.",
     extensions: relationshipDiscovery,
+  },
+  "GET /api/asset/[asaId]": {
+    accepts: usdcPrice("0.02"), // $0.02
+    description:
+      "Algorand ASA metadata and supply lookup: given an Algorand Standard Asset id, returns " +
+      "the asset name, unit name, decimals, declared total supply, real circulating supply " +
+      "(total minus unissued reserve holdings), creator, project url, whether the asset has " +
+      "been destroyed, and its configuration flags — manager, freeze, clawback, reserve, and " +
+      "default-frozen. Deterministic Algorand indexer data, no LLM. Use it to identify an " +
+      "unfamiliar token before accepting, holding, or swapping it. No API key or account — " +
+      "pay $0.02 per call in USDC.",
+    extensions: assetInfoDiscovery,
   },
   "GET /api/explain-tx/[txid]": {
     accepts: usdcPrice("0.03"), // $0.03
@@ -521,6 +575,24 @@ app.get("/api/portfolio/:address", async (req, res) => {
     }
     if (err instanceof PortfolioError) {
       return res.status(502).json({ error: "Portfolio lookup failed", detail: err.message });
+    }
+    throw err;
+  }
+});
+
+app.get("/api/asset/:asaId", async (req, res) => {
+  try {
+    const result = await getAssetInfo(req.params.asaId);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof InvalidAssetIdError) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err instanceof AssetInfoNotFoundError) {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err instanceof AssetInfoError) {
+      return res.status(502).json({ error: "Asset lookup failed", detail: err.message });
     }
     throw err;
   }

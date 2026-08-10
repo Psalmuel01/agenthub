@@ -215,6 +215,22 @@ export const TOOLS: ToolListing[] = [
       "amount, aToB, bToA }], firstInteraction, lastInteraction, scanned, windowComplete }",
   },
   {
+    method: "GET",
+    path: "/api/asset/{asaId}",
+    price: "$0.02",
+    name: "ASA metadata & supply",
+    deterministic: true,
+    searchTerm: "Algorand token metadata",
+    blurb:
+      "Identify an Algorand token: name, decimals, declared and real circulating supply, " +
+      "creator, and configuration flags. Price data is not yet included. No LLM.",
+    input: "An Algorand Standard Asset id (numeric) in the URL path.",
+    output:
+      "{ asaId, name, unitName, decimals, totalSupply, totalSupplyRaw, circulatingSupply, " +
+      "url, creator, destroyed, config: { hasManager, hasFreeze, hasClawback, hasReserve, " +
+      "defaultFrozen }, price (null for now), priceError }",
+  },
+  {
     method: "POST",
     path: "/api/verify-payment",
     price: "$0.02",
