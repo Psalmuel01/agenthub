@@ -8,7 +8,7 @@
  * rule: one payTo, one domain).
  */
 
-import { PAY_TO, USDC_ASA_ID } from "./config";
+import { PAY_TO, USDC_ASA_ID, PUBLIC_BASE_URL } from "./config";
 
 /** Inline SVG favicon (data URI) so the page needs no external assets. */
 const FAVICON =
@@ -62,6 +62,20 @@ function buildTitle(): string {
  */
 const MAX_NAMED_IN_DESCRIPTION = 6;
 
+/** Note for llms.txt naming whichever endpoints are LLM-free, so it can't go stale. */
+function deterministicNote(): string {
+  const names = TOOLS.filter((t) => t.deterministic).map((t) => t.path.split("/")[2]);
+  if (names.length === 0) return "All endpoints return structured JSON.";
+  const clause =
+    names.length > 1
+      ? `The ${names.slice(0, -1).join(", ")} and ${names[names.length - 1]} endpoints use no LLM: they are`
+      : `The ${names[0]} endpoint uses no LLM: it is`;
+  return (
+    `${clause} deterministic analysis of public Algorand indexer data, and every signal ` +
+    "behind the result is returned alongside it."
+  );
+}
+
 function buildDescription(): string {
   const all = TOOLS.map((t) => t.searchTerm);
   const named =
@@ -99,6 +113,8 @@ export interface ToolListing {
   searchTerm: string;
   /** Lead the merchant title with this tool. Reserve for differentiated supply. */
   headline?: boolean;
+  /** True when the result is computed deterministically (no LLM) and is auditable. */
+  deterministic?: boolean;
   blurb: string;
   input: string;
   output: string;
@@ -111,6 +127,7 @@ export const TOOLS: ToolListing[] = [
     path: "/api/wallet-risk/{address}",
     price: "$0.015",
     name: "Algorand wallet risk scoring",
+    deterministic: true,
     searchTerm: "Algorand wallet risk scoring",
     headline: true,
     blurb:
@@ -126,6 +143,7 @@ export const TOOLS: ToolListing[] = [
     path: "/api/explain-tx/{txid}",
     price: "$0.015",
     name: "Algorand transaction explainer",
+    deterministic: true,
     searchTerm: "transaction decoding",
     headline: true,
     blurb:
@@ -163,7 +181,10 @@ export const TOOLS: ToolListing[] = [
   },
 ];
 
-export function renderLandingPage(): string {
+export function renderLandingPage(baseUrl?: string): string {
+  // The copy-paste MCP example is only useful with a real host in it.
+  const origin = (baseUrl || PUBLIC_BASE_URL || "https://YOUR_DOMAIN").replace(/\/$/, "");
+  const headliner = TOOLS.find((t) => t.headline) ?? TOOLS[0];
   const cards = TOOLS.map(
     (t) => `      <article class="tool">
         <div class="tool-head">
@@ -243,9 +264,9 @@ export function renderLandingPage(): string {
     <span class="badge">x402 · Algorand mainnet</span>
     <h1>Pay-per-call tools your agent can use</h1>
     <p class="lede">
-      Three HTTP APIs that charge per request over the x402 protocol. No signup, no API key,
-      no subscription — your agent attaches a USDC micropayment to a normal HTTP request and
-      gets a useful result back. Payment <em>is</em> the authorization layer.
+      ${countWord(TOOLS.length)} HTTP APIs that charge per request over the x402 protocol. No
+      signup, no API key, no subscription — your agent attaches a USDC micropayment to a normal
+      HTTP request and gets a useful result back. Payment <em>is</em> the authorization layer.
     </p>
 
     <h2>Tools</h2>
@@ -257,8 +278,8 @@ ${cards}
       <a href="https://github.com/GoPlausible/algorand-mcp">GoPlausible Algorand MCP server</a>
       can discover and pay these endpoints with no integration work:
     </p>
-    <pre><code>bazaar_search "wallet risk"
-make_http_request_with_x402 "https://YOUR_DOMAIN/api/wallet-risk/&lt;ALGORAND_ADDRESS&gt;"</code></pre>
+    <pre><code>bazaar_search "${escapeHtml(headliner.searchTerm)}"
+make_http_request_with_x402 "${escapeHtml(origin + headliner.path.replace(/\{(\w+)\}/g, "<$1>"))}"</code></pre>
     <p>
       Or hand-roll it: call the endpoint, receive HTTP 402 with the payment quote, sign a USDC
       transfer for the quoted amount, and retry with the <code>PAYMENT-SIGNATURE</code> header.
@@ -322,8 +343,7 @@ ${tools}
 ## Notes
 
 - Prices are in US dollars and charged per successful call.
-- The wallet-risk endpoint uses no LLM: it is deterministic analysis of public Algorand
-  indexer data, and every signal behind the score is returned alongside it.
+- ${deterministicNote()}
 - Endpoints return structured JSON and standard HTTP status codes. A 400 indicates bad
   input, a 502 indicates an upstream failure (no charge should be retried blindly).
 `;

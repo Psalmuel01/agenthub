@@ -318,6 +318,20 @@ app.get("/api/explain-tx/:txid", async (req, res) => {
   }
 });
 
+/**
+ * Canonical public origin for this request.
+ *
+ * Prefers the deployed PUBLIC_BASE_URL so documented endpoints are callable, and
+ * falls back to the request's own host. Local development is the only case that
+ * should ever advertise http — these URLs point at a payment API.
+ */
+function publicOrigin(req: express.Request): string {
+  if (PUBLIC_BASE_URL) return PUBLIC_BASE_URL;
+  const host = req.get("host") ?? "";
+  const scheme = req.protocol === "https" || !/^localhost|^127\./.test(host) ? "https" : "http";
+  return `${scheme}://${host}`;
+}
+
 // ---------------------------------------------------------------------------
 // Public, unprotected routes.
 //
@@ -327,7 +341,7 @@ app.get("/api/explain-tx/:txid", async (req, res) => {
 // ---------------------------------------------------------------------------
 app.get("/", (req, res) => {
   if (req.accepts(["html", "json"]) === "html") {
-    return res.type("html").send(renderLandingPage());
+    return res.type("html").send(renderLandingPage(publicOrigin(req)));
   }
   res.json({
     name: "AgentHub",
@@ -338,13 +352,7 @@ app.get("/", (req, res) => {
 });
 
 app.get("/llms.txt", (req, res) => {
-  // Prefer the deployed public URL so the documented endpoints are callable;
-  // fall back to the request's own host when PUBLIC_BASE_URL isn't set. Local
-  // development is the only case that should ever advertise http.
-  const host = req.get("host") ?? "";
-  const scheme = req.protocol === "https" || !/^localhost|^127\./.test(host) ? "https" : "http";
-  const baseUrl = PUBLIC_BASE_URL || `${scheme}://${host}`;
-  res.type("text/plain").send(renderLlmsTxt(baseUrl));
+  res.type("text/plain").send(renderLlmsTxt(publicOrigin(req)));
 });
 
 app.get("/api/health", (_req, res) => {
