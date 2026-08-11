@@ -57,6 +57,19 @@ function bodyFor(p: string): unknown | undefined {
       expectedAmount: 0.02,
     };
   }
+  if (p.startsWith("/api/nl-to-sql")) {
+    return {
+      question: "Top 5 users by total completed order value in 2026",
+      schema:
+        "CREATE TABLE users (id BIGINT PRIMARY KEY, email TEXT, plan TEXT);\n" +
+        "CREATE TABLE orders (id BIGINT PRIMARY KEY, user_id BIGINT REFERENCES users(id), " +
+        "total NUMERIC(10,2), status TEXT, placed_at TIMESTAMP);",
+      dialect: "postgres",
+    };
+  }
+  if (p.startsWith("/api/code-review")) {
+    return { owner: "algorand", repo: "go-algorand", pull: 6100 };
+  }
   return undefined; // GET routes (wallet-risk, explain-tx, asset-risk, …)
 }
 
