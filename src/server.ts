@@ -457,7 +457,7 @@ const routes = {
     description:
       "LLM text generation and completion: send a natural-language prompt (question, instruction, " +
       "draft, code, or classification task) and receive generated text back. No API key, no account, " +
-      "no subscription — pay $0.01 per call in USDC. Powered by Claude Haiku 4.5. Returns the " +
+      "no subscription — pay $0.02 per call in USDC. Powered by Claude Haiku 4.5. Returns the " +
       "generated text plus a truncated flag.",
     extensions: inferenceDiscovery,
   },
@@ -467,7 +467,7 @@ const routes = {
       "Text summarization and condensation: send raw text up to 50,000 characters (article, " +
       "document, transcript, report, or thread) and receive a concise summary preserving key facts. " +
       "Optional maxWords for target length and style (concise, bullets, or detailed). No API key or " +
-      "account — pay $0.02 per call in USDC. Returns the summary plus a truncated flag.",
+      "account — pay $0.03 per call in USDC. Returns the summary plus a truncated flag.",
     extensions: summarizeDiscovery,
   },
   // Route-key path params use the middleware's [bracket] syntax (NOT Express ":param").
@@ -478,8 +478,10 @@ const routes = {
       "Natural language to SQL: send a plain-language question plus your table schema and " +
       "receive a ready-to-run SQL query. Supports postgres, mysql, sqlite, sqlserver, " +
       "bigquery, and snowflake dialects. Returns the query plus a readOnly flag and a " +
-      "warnings array identifying destructive or expensive operations, so an agent can gate " +
-      "execution before running anything. This endpoint GENERATES SQL ONLY — it never " +
+      "warnings array. readOnly is a conservative heuristic — true only for a single " +
+      "read-verb statement with no write verb, false whenever output was truncated or " +
+      "anything is unrecognised — so it is a gate, not a proof; run untrusted SQL through " +
+      "a read-only connection. This endpoint GENERATES SQL ONLY — it never " +
       "connects to a database and never executes the query. Powered by Claude Haiku 4.5. " +
       "No API key or account — pay $0.03 per call in USDC.",
     extensions: nlToSqlDiscovery,
@@ -564,7 +566,7 @@ const routes = {
       "behind it — account age in days, transaction count, ALGO balance, USDC opt-in status, " +
       "distinct counterparty count, and rekey history. Deterministic analysis of real Algorand " +
       "indexer data, no LLM. Useful for agent counterparty checks, fraud screening, and KYC-style " +
-      "address due diligence before transacting. No API key or account — pay $0.015 per call in USDC.",
+      "address due diligence before transacting. No API key or account — pay $0.03 per call in USDC.",
     extensions: walletRiskDiscovery,
   },
 };

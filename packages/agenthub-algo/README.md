@@ -140,7 +140,7 @@ so a payment routed through a contract still verifies.
 ```ts
 const q = await hub.nlToSql({ question, schema, dialect: "postgres" });
 q.sql;         // ready to run
-q.readOnly;    // false = the query writes or destroys. Gate on this.
+q.readOnly;    // conservative heuristic — false = unsafe or unclassifiable
 q.warnings;    // e.g. ["contains DELETE — this removes rows"]
 q.executed;    // always false — this never touches a database
 ```

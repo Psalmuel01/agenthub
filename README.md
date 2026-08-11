@@ -186,7 +186,7 @@ they have.
 | `truncated` (LLM endpoints) | The model hit its output cap mid-response; text is usable but incomplete |
 | `diffTruncated` (code-review) | The diff exceeded the size cap; only the reviewed portion was seen |
 | `price: null` (asset) | No verified price source is wired. The field is present with a `priceError` so adding one later is non-breaking |
-| `readOnly`, `warnings` (nl-to-sql) | The generated SQL writes or destroys data. This endpoint never executes SQL — the caller does, and owns that decision |
+| `readOnly`, `warnings` (nl-to-sql) | A **conservative heuristic**, not a proof: true only for a single statement beginning with a read verb and containing no write verb, false whenever output was truncated. This endpoint never executes SQL — the caller does, and should use a read-only connection |
 
 Performance note: `asset-risk` caches computed results per asset for five minutes, so
 repeat calls return immediately. A first call for an asset not in the cache still runs the

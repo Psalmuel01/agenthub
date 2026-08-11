@@ -7,10 +7,12 @@
  * writes and runs queries against a caller-supplied connection string would be
  * a remote code execution surface.
  *
- * Because the caller executes, the response carries a `warnings` array flagging
- * anything destructive or expensive that the generated query would do — a
- * caller wiring this into an agent loop needs that signal before it runs
- * anything. `readOnly: false` is the thing to gate on.
+ * Because the caller executes, the response carries `readOnly` and a `warnings`
+ * array. `readOnly` is a CONSERVATIVE heuristic, not a proof: it is true only
+ * when the output is a single statement starting with a read verb and
+ * containing no write verb. It is not a SQL parser, so treat it as "no write
+ * verb was found", not "proven side-effect free". Run untrusted SQL through a
+ * read-only database connection regardless.
  *
  * MARGIN. Measured worst case on Haiku 4.5 with a 40-table schema:
  * 2,536 input + 800 output tokens = $0.0065. Priced at $0.03 -> ~78% margin.
@@ -61,7 +63,11 @@ export interface NlToSqlRequest {
 export interface NlToSqlResult {
   sql: string;
   dialect: SqlDialect;
-  /** True when the query only reads (no INSERT/UPDATE/DELETE/DDL detected). */
+  /**
+   * Conservative heuristic: true only for a single statement that begins with a
+   * read verb and contains no write verb. NOT a proof of safety — see the file
+   * header. False whenever the output was truncated or anything is unrecognised.
+   */
   readOnly: boolean;
   /** Destructive or expensive patterns detected in the generated SQL. */
   warnings: string[];
@@ -71,24 +77,98 @@ export interface NlToSqlResult {
   truncated: boolean;
 }
 
-/** Statements that modify data or schema. */
-const WRITE_PATTERNS: [RegExp, string][] = [
-  [/\bDROP\s+(TABLE|DATABASE|SCHEMA|INDEX|VIEW)\b/i, "contains DROP — this destroys objects"],
+/**
+ * Read-only classification is an ALLOWLIST, deliberately.
+ *
+ * A blocklist of write keywords cannot be made sound with regexes. The previous
+ * version enumerated DROP/DELETE/UPDATE/etc. and let seven of eight write
+ * statements through as "read-only": `UPDATE public.users SET ...` evaded
+ * `UPDATE\s+\w+\s+SET` because `\w+` does not match a dotted name, and MERGE,
+ * REPLACE INTO, CALL, COPY ... FROM and CREATE OR REPLACE had no patterns at
+ * all. Every gap in a blocklist is a query a caller executes believing it was
+ * checked.
+ *
+ * So: a statement is read-only only when it *starts* with a known read verb and
+ * contains no write verb anywhere. Anything unrecognised — a new dialect
+ * keyword, a vendor extension, a CTE that ends in an INSERT — is reported unsafe.
+ * False "unsafe" costs the caller a manual look. False "safe" costs them data.
+ *
+ * This is still not a SQL parser. `readOnly: true` means "no write verb was
+ * found", not "proven side-effect free" — the response and docs say so, and a
+ * caller running untrusted SQL against a production database should use a
+ * read-only connection regardless.
+ */
+
+/** Statements that may begin a read-only query. */
+const READ_VERBS = /^\s*(?:WITH\b|SELECT\b|TABLE\b|VALUES\b|SHOW\b|EXPLAIN\b|DESCRIBE\b|DESC\b)/i;
+
+/** Any of these anywhere means the statement can write. Order = message priority. */
+const WRITE_VERBS: [RegExp, string][] = [
+  [/\bDROP\b/i, "contains DROP — this destroys objects"],
   [/\bTRUNCATE\b/i, "contains TRUNCATE — this empties a table"],
-  [/\bDELETE\s+FROM\b/i, "contains DELETE — this removes rows"],
-  [/\bUPDATE\s+\w+\s+SET\b/i, "contains UPDATE — this modifies rows"],
-  [/\bINSERT\s+INTO\b/i, "contains INSERT — this writes rows"],
-  [/\bALTER\s+(TABLE|DATABASE|SCHEMA)\b/i, "contains ALTER — this changes schema"],
-  [/\bCREATE\s+(TABLE|DATABASE|SCHEMA|INDEX|VIEW)\b/i, "contains CREATE — this creates objects"],
+  [/\bDELETE\b/i, "contains DELETE — this removes rows"],
+  [/\bUPDATE\b/i, "contains UPDATE — this modifies rows"],
+  [/\bINSERT\b/i, "contains INSERT — this writes rows"],
+  [/\bMERGE\b/i, "contains MERGE — this inserts or updates rows"],
+  [/\bUPSERT\b/i, "contains UPSERT — this inserts or updates rows"],
+  [/\bREPLACE\s+INTO\b/i, "contains REPLACE INTO — this overwrites rows"],
+  [/\bALTER\b/i, "contains ALTER — this changes schema"],
+  [/\bCREATE\b/i, "contains CREATE — this creates or replaces objects"],
   [/\bGRANT\b|\bREVOKE\b/i, "contains GRANT/REVOKE — this changes permissions"],
+  [/\b(?:EXEC|EXECUTE)\b/i, "contains EXEC — this runs arbitrary code"],
+  [/\bCALL\b/i, "contains CALL — this invokes a procedure with unknown effects"],
+  [/\bCOPY\b/i, "contains COPY — this reads or writes external files"],
+  [/\bINTO\s+OUTFILE\b|\bINTO\s+DUMPFILE\b/i, "writes query output to a file"],
+  [/\bSET\s+\w/i, "contains SET — this changes session or row state"],
+  [/\bLOCK\b|\bUNLOCK\b/i, "contains LOCK — this takes locks"],
+  [/\bVACUUM\b|\bANALYZE\b|\bREINDEX\b/i, "contains a maintenance command"],
+  [/\bBEGIN\b|\bCOMMIT\b|\bROLLBACK\b/i, "contains transaction control"],
 ];
 
-/** Patterns that are read-only but worth flagging before execution. */
+/** Read-only, but worth flagging before execution. */
 const CAUTION_PATTERNS: [RegExp, string][] = [
-  [/\bDELETE\b(?!\s+FROM)/i, "mentions DELETE — review before running"],
-  [/;\s*\S/, "contains multiple statements separated by ';' — review each one"],
-  [/\bSELECT\s+\*\s+FROM\b/i, "selects all columns (SELECT *) — may return more data than needed"],
+  [/\bSELECT\s+\*/i, "selects all columns (SELECT *) — may return more data than needed"],
+  [/\bFOR\s+UPDATE\b|\bFOR\s+SHARE\b/i, "locks the selected rows"],
 ];
+
+/**
+ * Split on semicolons that are not inside a string literal or a line comment.
+ * Multi-statement output is never treated as read-only, but we still need the
+ * count to tell the caller what they received.
+ */
+function splitStatements(sql: string): string[] {
+  const out: string[] = [];
+  let current = "";
+  let quote: string | null = null;
+
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i];
+    if (quote) {
+      current += ch;
+      if (ch === quote && sql[i - 1] !== "\\") quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === "`") {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === "-" && sql[i + 1] === "-") {
+      const nl = sql.indexOf("\n", i);
+      i = nl === -1 ? sql.length : nl;
+      current += "\n";
+      continue;
+    }
+    if (ch === ";") {
+      out.push(current);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  out.push(current);
+  return out.map((s) => s.trim()).filter(Boolean);
+}
 
 /**
  * Strip markdown fences. The model reliably wraps SQL in ```sql blocks even
@@ -99,16 +179,57 @@ function unfence(text: string): string {
   return (fenced ? fenced[1] : text).trim();
 }
 
-function analyse(sql: string): { readOnly: boolean; warnings: string[] } {
+/**
+ * Classify generated SQL. Read-only requires ALL of:
+ *   - the output was not truncated (a cut-off statement cannot be classified),
+ *   - exactly one statement,
+ *   - that statement starts with a known read verb,
+ *   - no write verb appears anywhere in it.
+ *
+ * Anything else is reported unsafe with a reason.
+ */
+function analyse(sql: string, truncated: boolean): { readOnly: boolean; warnings: string[] } {
   const warnings: string[] = [];
-  let readOnly = true;
 
-  for (const [pattern, message] of WRITE_PATTERNS) {
-    if (pattern.test(sql)) {
-      readOnly = false;
-      warnings.push(message);
+  // A "-- cannot answer" comment is the documented no-result case, not a query.
+  if (/^\s*--/.test(sql) && !/\b(SELECT|WITH|INSERT|UPDATE|DELETE)\b/i.test(sql)) {
+    return { readOnly: true, warnings: [] };
+  }
+
+  let readOnly = true;
+  const unsafe = (reason: string) => {
+    readOnly = false;
+    if (!warnings.includes(reason)) warnings.push(reason);
+  };
+
+  // Truncated output may have been cut mid-statement — a trailing INSERT could
+  // be missing entirely. Never call that safe.
+  if (truncated) {
+    unsafe("output was truncated mid-query — it cannot be classified as read-only");
+  }
+
+  const statements = splitStatements(sql);
+  if (statements.length === 0) {
+    unsafe("no SQL statement was produced");
+    return { readOnly, warnings };
+  }
+  if (statements.length > 1) {
+    unsafe(
+      `contains ${statements.length} statements — each must be reviewed separately`,
+    );
+  }
+
+  for (const statement of statements) {
+    if (!READ_VERBS.test(statement)) {
+      unsafe(
+        "does not begin with a read-only verb (SELECT/WITH/SHOW/EXPLAIN) — treat as a write",
+      );
+    }
+    for (const [pattern, message] of WRITE_VERBS) {
+      if (pattern.test(statement)) unsafe(message);
     }
   }
+
   for (const [pattern, message] of CAUTION_PATTERNS) {
     if (pattern.test(sql)) warnings.push(message);
   }
@@ -161,7 +282,7 @@ export async function nlToSql(req: NlToSqlRequest): Promise<NlToSqlResult> {
   });
 
   const sql = unfence(text);
-  const { readOnly, warnings } = analyse(sql);
+  const { readOnly, warnings } = analyse(sql, truncated);
 
   return { sql, dialect, readOnly, warnings, executed: false, truncated };
 }

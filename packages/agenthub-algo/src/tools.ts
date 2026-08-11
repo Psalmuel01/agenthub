@@ -202,7 +202,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       "columns — because the query is built only from what you supply and never invents " +
       "tables. Supports postgres, mysql, sqlite, sqlserver, bigquery, and snowflake. " +
       "IMPORTANT: this generates SQL and never executes it. Before running the result, check " +
-      "`readOnly` (false means the query writes or destroys data) and read `warnings`. If " +
+      "`readOnly` and read `warnings`. `readOnly` is a conservative heuristic, not a " +
+      "guarantee: it is true only for a single statement that starts with a read verb and " +
+      "contains no write verb, and false whenever the output was truncated. Do not treat " +
+      "it as proof the query is safe — prefer a read-only database connection. If " +
       "the question cannot be answered from the schema, the SQL returned is a comment " +
       "starting with '-- cannot' rather than a guess.",
     input_schema: {
