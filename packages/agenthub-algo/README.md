@@ -77,9 +77,10 @@ OpenAI function calling works the same way with `openaiTools()`.
 Start with `portfolio()` — it is free, needs no wallet, and returns the addresses and
 asset ids the paid tools take as input.
 
-The Algorand tools are all **deterministic** — no LLM, no opaque judgment. They read the
+The seven Algorand tools are **deterministic** — no LLM, no opaque judgment. They read the
 public indexer and return every signal behind the answer, so your agent can act on the
-reasoning rather than trusting a number.
+reasoning rather than trusting a number. The four LLM-backed tools (`codeReview`,
+`nlToSql`, `inference`, `summarize`) are marked as such below.
 
 ### `walletRisk` — check a counterparty before you transact
 
@@ -103,6 +104,59 @@ tx.application;  // app id + inner transaction count, for DEX swaps and contract
 
 Inner transactions are walked, so a swap reports the funds that actually moved rather
 than just "called an application."
+
+### `assetRisk` — screen a token before accepting it
+
+```ts
+const a = await hub.assetRisk("31566704");
+a.riskScore;                          // 0-100, higher is riskier
+a.signals.clawbackEnabled;            // creator can seize tokens — the heaviest flag
+a.signals.topHolderPct;               // share of real circulating supply, largest holder
+a.signals.concentrationExact;         // false = measured from large holders, not all
+```
+
+Results are cached server-side for five minutes, so repeat calls for the same asset return
+immediately. A first call for an unseen asset can take several seconds.
+
+### `verifyPayment` — confirm a payment landed as expected
+
+```ts
+const v = await hub.verifyPayment({
+  txid,
+  expectedReceiver: myAddress,
+  expectedAsset: "31566704",
+  expectedAmount: 0.02,          // whole units, not base units
+  amountTolerance: 0,            // optional
+});
+v.verified;                      // AND of every check you asked for
+v.checks.amount;                 // { expected, actual, match } — see which one failed
+```
+
+Only the checks you supply are evaluated and returned. Matching walks inner transactions,
+so a payment routed through a contract still verifies.
+
+### `nlToSql` — SQL from a question *(LLM-backed)*
+
+```ts
+const q = await hub.nlToSql({ question, schema, dialect: "postgres" });
+q.sql;         // ready to run
+q.readOnly;    // false = the query writes or destroys. Gate on this.
+q.warnings;    // e.g. ["contains DELETE — this removes rows"]
+q.executed;    // always false — this never touches a database
+```
+
+**This generates SQL and never executes it.** Your code runs the query, so your code owns
+the safety decision — check `readOnly` before doing so.
+
+### `codeReview` — review a GitHub pull request *(LLM-backed)*
+
+```ts
+const r = await hub.codeReview({ owner: "algorand", repo: "go-algorand", pull: 6100 });
+r.review;          // findings with file and line
+r.diffTruncated;   // true = the diff exceeded the cap; only part was reviewed
+```
+
+The diff is fetched for you. Public repositories only.
 
 ## Errors
 

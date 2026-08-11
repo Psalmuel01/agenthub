@@ -1,34 +1,56 @@
 # AgentHub
 
-**Eleven pay-per-call tools your AI agent can use — no signup, no API key, no subscription.**
-**One of them is free.**
+**On-chain intelligence and developer tools for AI agents, priced per call.**
+No signup, no API key, no subscription — your agent attaches a USDC micropayment to a
+normal HTTP request and gets a result back.
 
 Live on Algorand mainnet: **https://agenthub-production-8c75.up.railway.app**
+&nbsp;·&nbsp; npm: [`agenthub-algo`](https://www.npmjs.com/package/agenthub-algo)
+&nbsp;·&nbsp; [`/llms.txt`](https://agenthub-production-8c75.up.railway.app/llms.txt)
 
-Your agent makes a normal HTTP request, gets back `402 Payment Required` with a quote,
-attaches a USDC micropayment, and receives the result. Payment *is* the authorization
-layer — there is no account to create and no key to manage.
+```bash
+# Free. No wallet, no signup. Try it now.
+curl https://agenthub-production-8c75.up.railway.app/api/portfolio/ZW3ISEHZUHPO7OZGMKLKIIMKVICOUDRCERI454I3DB2BH52HGLSO67W754
+```
 
-| Tool | Price | What it does |
+---
+
+## Endpoints
+
+Eleven endpoints. Seven are deterministic on-chain analysis; four are LLM-backed.
+
+### On-chain intelligence
+
+Deterministic — no model, no opaque judgment. Each reads the public Algorand indexer and
+returns every signal behind its answer, so an agent can act on the reasoning rather than
+trusting a number.
+
+| Endpoint | Price | Returns |
 |---|---|---|
-| `GET /api/portfolio/{address}` | **FREE** | Every holding for an address — ALGO plus each ASA with resolved names, largest first. No LLM. |
-| `GET /api/wallet-risk/{address}` | $0.03 | Explainable 0–100 risk score for any Algorand address, from real on-chain data. No LLM. |
-| `GET /api/explain-tx/{txid}` | $0.03 | Plain-language explanation of what a transaction did, with every transfer decoded. No LLM. |
-| `GET /api/asset-risk/{asaId}` | $0.03 | Scam/rug screen for any ASA: clawback, freeze, mutable supply, holder concentration. No LLM. |
-| `GET /api/relationship?a=&b=` | $0.03 | Whether two addresses have transacted, and how much moved each way. No LLM. |
-| `POST /api/verify-payment` | $0.02 | Pass/fail check that a transaction matched what you expected. No LLM. |
-| `GET /api/asset/{asaId}` | $0.02 | ASA metadata: name, decimals, real circulating supply, config flags. No LLM. |
-| `POST /api/code-review` | $0.08 | GitHub PR in, structured review out — bugs with file and line (Claude Haiku 4.5). |
-| `POST /api/nl-to-sql` | $0.03 | Question + schema in, SQL out. Generates only — never executes. |
-| `POST /api/inference` | $0.02 | Prompt in, generated text out (Claude Haiku 4.5). |
-| `POST /api/summarize` | $0.03 | Up to 50,000 characters in, concise summary out. |
+| `GET /api/portfolio/{address}` | **Free** | Every holding — ALGO plus each ASA with resolved names and decimals-corrected amounts, largest first |
+| `GET /api/wallet-risk/{address}` | $0.03 | 0–100 risk score, level, and the six signals behind it |
+| `GET /api/asset-risk/{asaId}` | $0.03 | Scam/rug screen: clawback, freeze, mutable supply, holder concentration, creator age |
+| `GET /api/explain-tx/{txid}` | $0.03 | Plain-language summary plus every transfer, decoded app calls and inner transactions |
+| `GET /api/relationship?a=&b=` | $0.03 | Whether two addresses have transacted, value moved per asset in each direction |
+| `GET /api/asset/{asaId}` | $0.02 | ASA metadata: name, decimals, real circulating supply, configuration flags |
+| `POST /api/verify-payment` | $0.02 | Pass/fail verdict that a transaction matched your expectations, per check |
 
-**Start with `/api/portfolio` — it is free.** No wallet, no payment, no signup. It returns
-the addresses and asset ids that the paid tools take as input.
+### LLM-backed
 
-Machine-readable summary for agents: [`/llms.txt`](https://agenthub-production-8c75.up.railway.app/llms.txt)
+| Endpoint | Price | Returns |
+|---|---|---|
+| `POST /api/code-review` | $0.08 | Structured review of a GitHub PR diff — concrete bugs with file and line |
+| `POST /api/nl-to-sql` | $0.03 | SQL from a question plus your schema. Generates only; never executes |
+| `POST /api/summarize` | $0.03 | Concise summary of up to 50,000 characters |
+| `POST /api/inference` | $0.02 | Generated text from a prompt |
 
-## Fastest integration: the npm package
+Unprotected: `GET /` (this listing), `GET /api/health`, `GET /llms.txt`.
+
+---
+
+## Quick start
+
+### npm
 
 ```bash
 npm install agenthub-algo
@@ -38,57 +60,59 @@ npm install agenthub-algo
 import { AgentHub } from "agenthub-algo";
 
 const hub = new AgentHub({ mnemonic: process.env.ALGORAND_MNEMONIC! });
+
+// Free — no payment.
+const holdings = await hub.portfolio(address);
+
+// Paid — the 402 handshake, signing, and settlement happen inside the call.
 const risk = await hub.walletRisk(address);
 if (risk.riskScore > 60) throw new Error("counterparty too risky");
 ```
 
-The 402 handshake, signing, and settlement happen inside the call. It also ships
-ready-made tool definitions for the Anthropic and OpenAI SDKs — see
-[`packages/agenthub-algo`](packages/agenthub-algo).
+The package also ships ready-made tool definitions for the Anthropic and OpenAI SDKs —
+see [`packages/agenthub-algo`](packages/agenthub-algo).
 
----
+### MCP
 
-## Use it from an agent (30 seconds)
-
-If your agent runs the [GoPlausible Algorand MCP server](https://github.com/GoPlausible/algorand-mcp),
-it can discover and pay these endpoints with **zero integration work** — the MCP server
-handles the 402, the signature, and the settlement for you.
-
-Install it in Claude Desktop, Claude Code, Cursor, Windsurf, or Codex:
+Agents running the [GoPlausible Algorand MCP server](https://github.com/GoPlausible/algorand-mcp)
+can discover and pay these endpoints with no integration work:
 
 ```bash
 npx -y @goplausible/algorand-mcp
 ```
 
-Then just ask your agent to use it:
-
-```
-Search the x402 bazaar for "Algorand wallet risk scoring", then score
-G3YVTPURK6VFSM5CXEH7QFTZXLCXBJL6UMAIUUYJO4P2XF3MHQ4FUHYYB4
-```
-
-Under the hood that's two MCP tool calls:
-
 ```js
 bazaar_search("Algorand wallet risk scoring")
 
 make_http_request_with_x402({
-  url: "https://agenthub-production-8c75.up.railway.app/api/wallet-risk/G3YVTPURK6VFSM5CXEH7QFTZXLCXBJL6UMAIUUYJO4P2XF3MHQ4FUHYYB4",
-  method: "GET"
+  url: "https://agenthub-production-8c75.up.railway.app/api/wallet-risk/<ADDRESS>",
+  method: "GET",
 })
 ```
 
-No wallet yet? The free endpoint needs no MCP server and no payment at all:
+### Raw HTTP
+
+Any client works. The flow is four steps:
+
+1. Call the endpoint → `402 Payment Required` with a quote
+2. Read the quote from the `PAYMENT-REQUIRED` header
+3. Sign a USDC transfer for the quoted amount to the quoted address
+4. Retry the identical request with the signature in the `PAYMENT-SIGNATURE` header
+
+[`scripts/test-client.ts`](scripts/test-client.ts) is a complete ~160-line implementation
+using `@x402-avm/core`.
+
+**Requirements for paid calls:** an Algorand wallet holding USDC (ASA `31566704`) and ALGO
+for fees, opted in to USDC. At $0.03 a call, $1 covers ~33 requests. The free portfolio
+endpoint needs no wallet at all.
+
+---
+
+## Example
 
 ```bash
-curl https://agenthub-production-8c75.up.railway.app/api/portfolio/G3YVTPURK6VFSM5CXEH7QFTZXLCXBJL6UMAIUUYJO4P2XF3MHQ4FUHYYB4
+curl https://agenthub-production-8c75.up.railway.app/api/wallet-risk/<ADDRESS>
 ```
-
-You need an Algorand wallet with a little USDC (ASA `31566704`) and ALGO for fees, opted
-in to USDC. At $0.03 a call, $1 is ~33 wallet-risk lookups. (The portfolio endpoint is
-free and needs no wallet at all.)
-
-### Example response
 
 ```json
 {
@@ -96,102 +120,77 @@ free and needs no wallet at all.)
   "riskScore": 35,
   "riskLevel": "medium",
   "signals": {
-    "accountAgeDays": 0,
-    "txCount": 29,
-    "balanceAlgo": 13.164828,
+    "accountAgeDays": 1,
+    "txCount": 100,
+    "balanceAlgo": 10.162856,
     "usdcOptedIn": true,
-    "distinctCounterparties": 5,
+    "distinctCounterparties": 7,
     "rekeyed": false
   }
 }
 ```
 
-*(Real output. This address is a few days old with limited history, so it scores
-`medium` — new accounts carry uncertainty, and the signals show exactly why.)*
-
-Every signal behind the score is returned with it, so an agent can act on the reasoning
-rather than trusting a bare number.
-
-### Without MCP
-
-Any HTTP client works — the flow is four steps:
-
-1. `GET https://agenthub-production-8c75.up.railway.app/api/wallet-risk/{address}` → `402` with a quote
-2. Read the quote from the `PAYMENT-REQUIRED` header
-3. Sign a USDC transfer for the quoted amount to the quoted address
-4. Retry the identical request with the signature in the `PAYMENT-SIGNATURE` header
-
-[`scripts/test-client.ts`](scripts/test-client.ts) is a complete, working ~150-line
-implementation of exactly this using `@x402-avm/core`.
+Real output. This account is new with limited history, so it scores `medium` — and the
+signals show exactly why, rather than leaving the caller to trust the number.
 
 ---
 
-## What makes these different
+## How the risk scores work
 
-Seven of the nine tools are **Algorand-native on-chain intelligence**, and they are all
-**deterministic**: no model, no opaque judgment. They read the public Algorand indexer and
-return every signal behind the answer, so an agent can act on the reasoning rather than
-trusting a number.
+Both scoring models are documented in full in their source files, and every signal that
+contributed is returned with the result.
 
-They are designed to be used together — a workflow, not a catalog:
-
-```
-portfolio (free)  ->  what does this address hold?
-   |
-   +-- wallet-risk    ->  is the address itself safe to transact with?
-   +-- asset-risk     ->  are the tokens it holds scams?
-   +-- relationship   ->  has it dealt with my counterparty before?
-   +-- explain-tx     ->  what did that specific transaction actually do?
-   +-- verify-payment ->  did the payment I expected really land?
-```
-
-### How wallet-risk scores
-
-Each signal's contribution is documented in
-[`src/services/wallet-risk.ts`](src/services/wallet-risk.ts):
+### Wallet risk — [`src/services/wallet-risk.ts`](src/services/wallet-risk.ts)
 
 | Signal | Contribution |
 |---|---|
-| Account age | Newer accounts score higher risk (< 7d: +35, < 30d: +20, < 90d: +10) |
-| Transaction count | Thin history scores higher (0 txns: +30, < 5: +18, < 25: +8) |
-| ALGO balance | Unfunded scores higher (0: +15, < 1 ALGO: +8) |
-| USDC opt-in | Not opted into the payment asset: +8 |
-| Counterparty diversity | 0–1 distinct peers (isolated/sybil-like): +7 |
-| Rekey history | Account has been rekeyed — custody changed: +25 |
+| Account age | `< 7d` +35 · `< 30d` +20 · `< 90d` +10 |
+| Transaction count | `0` +30 · `< 5` +18 · `< 25` +8 |
+| ALGO balance | `0` +15 · `< 1 ALGO` +8 |
+| USDC opt-in | not opted in +8 |
+| Counterparty diversity | 0–1 distinct peers +7 |
+| Rekey history | account has been rekeyed +25 |
 
-Raw sum is clamped to 0–100. Under 30 is `low`, under 70 is `medium`, else `high`. A
-brand-new empty account returns a valid high-uncertainty result, not an error.
-
-### How asset-risk scores
-
-Documented in [`src/services/asset-risk.ts`](src/services/asset-risk.ts):
+### Asset risk — [`src/services/asset-risk.ts`](src/services/asset-risk.ts)
 
 | Signal | Contribution |
 |---|---|
-| Clawback enabled | Creator can seize tokens from holders: +30 |
-| Freeze enabled | Creator can freeze holdings: +20 |
-| Default frozen | Holdings start frozen: +10 |
-| Manager set | Supply and config are still mutable: +15 |
-| Holder concentration | Largest holder > 90%: +25, > 75%: +15, > 50%: +8 |
-| Creator age | < 7d: +25, < 30d: +15, < 90d: +8 |
+| Clawback enabled | +30 — creator can seize tokens from holders |
+| Freeze enabled | +20 — creator can freeze holdings |
+| Manager set | +15 — supply and configuration remain mutable |
+| Default frozen | +10 |
+| Holder concentration | `> 90%` +25 · `> 75%` +15 · `> 50%` +8 |
+| Creator age | `< 7d` +25 · `< 30d` +15 · `< 90d` +8 |
 
-Two details that matter for correctness: a *disabled* role on Algorand is the all-zero
-address, not an absent field (so USDC is correctly reported as clawback-free), and
-concentration is measured against real circulating supply — declared total minus the
-reserve's unissued holding — with the reserve excluded from the holder set.
+Both clamp to 0–100. Under 30 is `low`, under 70 `medium`, else `high`. A brand-new empty
+account returns a valid high-uncertainty result, not an error.
 
-### Honest limits
+Two correctness details that are easy to get wrong: on Algorand a *disabled* clawback,
+freeze, or manager role is the **all-zero address**, not an absent field — so USDC is
+correctly reported clawback-free. And concentration is measured against **real circulating
+supply** (declared total minus the reserve's unissued holding), with the reserve excluded
+from the holder set.
 
-These endpoints tell you the basis of their answers rather than implying more certainty
-than they have:
+---
 
-- `relationship` returns `scanned` and `windowComplete`. A "have not transacted" result
-  from an incomplete window is not proof of no relationship.
-- `asset-risk` returns `holdersSampled` and `concentrationExact`. Concentration is exact
-  only for narrowly-held assets.
-- `portfolio` returns `truncated` when an address holds more assets than the cap.
-- `asset` returns `price: null` and a `priceError` — no verified price source is wired
-  yet, so it does not guess.
+## Limits and honesty
+
+These endpoints report the basis of their answers rather than implying more certainty than
+they have.
+
+| Field | Meaning |
+|---|---|
+| `windowComplete` (relationship) | `false` means the scan was bounded — "have not transacted" covers the scanned window only |
+| `concentrationExact` (asset-risk) | `false` means concentration was measured from large holders, not every holder |
+| `truncated` (portfolio) | The account holds more assets than the response cap |
+| `truncated` (LLM endpoints) | The model hit its output cap mid-response; text is usable but incomplete |
+| `diffTruncated` (code-review) | The diff exceeded the size cap; only the reviewed portion was seen |
+| `price: null` (asset) | No verified price source is wired. The field is present with a `priceError` so adding one later is non-breaking |
+| `readOnly`, `warnings` (nl-to-sql) | The generated SQL writes or destroys data. This endpoint never executes SQL — the caller does, and owns that decision |
+
+Performance note: `asset-risk` caches computed results per asset for five minutes, so
+repeat calls return immediately. A first call for an asset not in the cache still runs the
+full computation, which can take ~12s for a widely-held asset.
 
 ---
 
@@ -199,12 +198,12 @@ than they have:
 
 ### Requirements
 
-- Node.js 20.19+ (a core dependency is ESM-only and cannot be `require()`d on Node 18)
-- An Algorand indexer (defaults to the free public AlgoNode instance — no key)
-- An Algorand account opted in to USDC (to receive payment)
-- An Anthropic API key (only for the LLM routes)
+- Node.js **20.19+** — a core dependency is ESM-only and cannot be `require()`d on Node 18
+- An Algorand account opted in to USDC, to receive payment
+- An Anthropic API key, for the four LLM endpoints only
+- A GitHub token, for `/api/code-review` only (see below)
 
-### Setup
+### Configuration
 
 ```bash
 npm install
@@ -213,63 +212,70 @@ cp .env.example .env
 
 | Variable | Required | Description |
 |---|---|---|
-| `RECEIVER_ADDRESS` | yes | Algorand address that receives payment for every route. Opt it into USDC. Don't change it mid-competition — volume is attributed by this address. |
-| `FACILITATOR_URL` | yes | GoPlausible facilitator (`https://facilitator.goplausible.xyz`). |
-| `X402_NETWORK` | yes | `testnet` for development, `mainnet` for production. |
-| `ANTHROPIC_API_KEY` | for LLM routes | Used by `/api/inference` and `/api/summarize`. If unset those routes return 502 and a warning is logged at startup. None of the seven on-chain endpoints need it. |
+| `RECEIVER_ADDRESS` | yes | Algorand address receiving payment for every route. Opt it into USDC. Volume is attributed to this address — do not change it mid-competition. |
+| `FACILITATOR_URL` | yes | GoPlausible facilitator (`https://facilitator.goplausible.xyz`) |
+| `X402_NETWORK` | yes | `testnet` or `mainnet`. **Defaults to `testnet`** — the server logs a loud warning on testnet, because those settlements are not real. |
+| `ANTHROPIC_API_KEY` | LLM routes | Without it those four routes return 502 and a warning is logged at startup. The seven on-chain endpoints do not need it. |
+| `GITHUB_TOKEN` | recommended | `/api/code-review` only. Unauthenticated GitHub allows **60 requests/hour per IP**, shared across all callers — not enough for a paid endpoint. Any classic token with public-repo read raises it to 5,000/hour. |
 | `PUBLIC_BASE_URL` | no | Public HTTPS origin, used for absolute URLs in `/llms.txt`. Falls back to the request host. |
-| `INDEXER_URL` | no | Algorand indexer. Defaults to the public AlgoNode indexer for the selected network. |
-| `PORT` | no | HTTP port (default `3000`). Hosts like Render inject this. |
+| `INDEXER_URL` | no | Algorand indexer. Defaults to the public AlgoNode instance for the selected network. |
+| `PORT` | no | Default `3000`. Hosts like Railway inject this. |
 
 ### Run
 
 ```bash
 npm run dev      # development
-npm start        # production (after npm run build)
+npm run build && npm start
 ```
 
 Drive the full x402 flow against a running server:
 
 ```bash
-npm run test-client -- /api/wallet-risk/<ALGO_ADDRESS>
-npm run test-client -- /api/explain-tx/<TXID>
+npm run test-client -- /api/wallet-risk/<ADDRESS>
 npm run test-client -- /api/asset-risk/<ASA_ID>
-npm run test-client -- /api/asset/<ASA_ID>
+npm run test-client -- /api/explain-tx/<TXID>
 npm run test-client -- "/api/relationship?a=<ADDR_A>&b=<ADDR_B>"
-npm run test-client -- /api/inference
-npm run test-client -- /api/summarize
+npm run test-client -- /api/verify-payment
+npm run test-client -- /api/code-review
+npm run test-client -- /api/nl-to-sql
 
-# /api/portfolio is free — no payment, so call it directly:
-curl https://agenthub-production-8c75.up.railway.app/api/portfolio/<ALGO_ADDRESS>
+# The portfolio endpoint is free — call it directly.
+curl http://localhost:3000/api/portfolio/<ADDRESS>
 ```
 
-The client reads a paying wallet from `AVM_CLIENT_MNEMONIC`, receives the 402, signs the
-payment, retries with `PAYMENT-SIGNATURE`, and prints the response plus settlement.
-
 > **Match `ALGOD_URL` to `X402_NETWORK`.** Signing against testnet algod while the server
-> quotes mainnet produces a mismatched genesis hash and the facilitator rejects the
+> quotes mainnet produces a mismatched genesis hash, and the facilitator rejects the
 > payment with a second 402.
 
-### Deploying to mainnet
+### Deploying
 
 1. Set `X402_NETWORK=mainnet` and `PUBLIC_BASE_URL` to your HTTPS origin.
 2. Confirm `RECEIVER_ADDRESS` is a mainnet account opted in to USDC (ASA `31566704`).
 3. Deploy over HTTPS. Avoid free tiers that sleep — a cold start can exceed an agent's
    timeout before the 402 is returned.
-4. Settle one real payment against each route. Endpoints then appear in the Bazaar
-   catalog and on the leaderboard.
+4. Settle one real payment per route. Endpoints then appear in the Bazaar catalog.
 
 ### Adding an endpoint
 
-Add one entry to the `routes` object in [`src/server.ts`](src/server.ts) with its price
-and description, add the matching handler, and keep `PAY_TO` unchanged. That's the whole
-pattern.
+Three edits, in this order:
 
-Prices are **decimal USDC (dollars)**: `usdcPrice("0.01")` bills one cent. The SDK
-multiplies by USDC's six decimals internally — passing `"10000"` would bill 10,000 USDC.
+1. One entry in the `TOOLS` array in [`src/landing.ts`](src/landing.ts). The landing page,
+   `/llms.txt`, and the merchant title and description are all derived from it — nothing
+   else needs updating for docs.
+2. One entry in the `routes` object in [`src/server.ts`](src/server.ts) with its price and
+   a keyword-rich description, plus a discovery declaration.
+3. One route handler.
 
-Route keys use the middleware's `[bracket]` param syntax (`GET /api/wallet-risk/[address]`),
-not Express's `:colon` form. A colon route silently bypasses payment.
+Two constraints that fail silently if broken:
+
+- Prices are **decimal USDC** (dollars). `usdcPrice("0.03")` bills three cents; the SDK
+  multiplies by USDC's six decimals internally. Passing `"30000"` would bill 30,000 USDC.
+- Route keys use the middleware's `[bracket]` parameter syntax
+  (`GET /api/wallet-risk/[address]`), **not** Express's `:colon` form. A colon route
+  silently bypasses payment entirely.
+
+Never introduce a second `PAY_TO` — every route shares one address, which is what makes
+this a single Composite Entry.
 
 ---
 
@@ -278,24 +284,43 @@ not Express's `:colon` form. A colon route silently bypasses payment.
 ```
 src/
   server.ts              Express app, routes, x402 middleware, Bazaar discovery
-  config.ts              Network, addresses, facilitator, indexer config
-  landing.ts             Public landing page + /llms.txt (single source of truth)
+  config.ts              Network, addresses, facilitator, indexer configuration
+  landing.ts             Landing page + /llms.txt, derived from one TOOLS array
   services/
+    chain.ts             Shared indexer primitives: asset cache, transfer decoding
+    indexer-fetch.ts     Indexer fetch with timeout and bounded retries
+    wallet-risk.ts       Address risk scoring
+    asset-risk.ts        ASA scam/rug screening (with a 5-minute result cache)
+    asset-info.ts        ASA metadata and supply
+    portfolio.ts         Account holdings (free endpoint)
+    relationship.ts      Address-pair transaction history
+    explain-tx.ts        Transaction decoding
+    verify-payment.ts    Transaction assertion against expectations
     anthropic.ts         Shared Anthropic Messages API client
-    wallet-risk.ts       On-chain risk scoring via the Algorand indexer
+    code-review.ts       GitHub PR review
+    nl-to-sql.ts         Natural language to SQL
 scripts/
   test-client.ts         End-to-end x402 client
   optin-usdc.ts          USDC opt-in helper
+packages/
+  agenthub-algo/         npm package: typed client + agent tool definitions
 ```
 
-Every route shares one `payTo` address, one domain, and one facilitator — the Composite
-Entry model, so all volume rolls up to a single leaderboard total.
+All indexer access goes through `indexerFetch`, which applies an 8-second timeout and
+three bounded retries. The public AlgoNode indexer is intermittently slow on accounts with
+large histories — without this, a slow response fails a request the caller has already
+paid for.
 
-**Settlement:** USDC (ASA `31566704`) on Algorand mainnet via the GoPlausible facilitator.
+Every route shares one `payTo` address, one domain, and one facilitator. Settlement is
+USDC (ASA `31566704`) on Algorand mainnet via the GoPlausible facilitator.
 
 ## References
 
-- [GoPlausible x402-avm docs](https://github.com/GoPlausible/.github/tree/main/profile/algorand-x402-documentation)
+- [GoPlausible x402-avm documentation](https://github.com/GoPlausible/.github/tree/main/profile/algorand-x402-documentation)
 - [GoPlausible Algorand MCP server](https://github.com/GoPlausible/algorand-mcp)
 - [Algorand x402 developer portal](https://algorand.co/agentic-commerce/x402)
 - [x402 Bazaar discovery](https://docs.x402.org/extensions/bazaar)
+
+## License
+
+MIT
