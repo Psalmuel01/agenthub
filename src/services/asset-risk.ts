@@ -49,6 +49,25 @@ const ZERO_ADDRESS = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY5HFKQ
 /** Holders sampled for the concentration signal. */
 const HOLDER_SAMPLE = 500;
 
+/**
+ * How long a computed risk result stays fresh.
+ *
+ * Five minutes: the underlying signals (clawback/freeze/manager config, supply
+ * concentration, creator age) all move on the order of days, so brief staleness
+ * costs nothing in accuracy.
+ */
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
+// Scoring an asset costs several indexer round trips — up to ~12s for a widely
+// held asset like USDC, because concentration requires walking holder pages.
+// Popular assets dominate real traffic, so a small process-wide cache keyed by
+// ASA id turns repeat calls into an immediate return. Same shape as the
+// assetCache in chain.ts, with a timestamp because these values do drift.
+//
+// NOTE: this only helps *repeat* calls. The first call for any given asset still
+// pays the full computation — see the note on scoreAsset.
+const riskCache = new Map<string, { result: AssetRiskResult; computedAt: number }>();
+
 export class InvalidAsaIdError extends Error {
   constructor(message: string) {
     super(message);
@@ -184,10 +203,29 @@ async function sampleConcentration(
   }
 }
 
+/**
+ * Score an asset for scam/rug risk.
+ *
+ * Results are cached per ASA id for CACHE_TTL_MS. This makes repeat calls for
+ * the same asset immediate, which covers the common case (popular assets are
+ * requested far more often than obscure ones). It does **not** speed up the
+ * first call for an asset — a cold lookup still runs the full computation,
+ * which can take ~12s for a widely-held asset. If cold latency becomes a
+ * problem, that needs a different fix (a tighter holder sweep or a cheaper
+ * concentration strategy), not a bigger cache.
+ *
+ * Only successful results are cached. Invalid ids and missing assets are cheap
+ * to recompute and are not worth holding.
+ */
 export async function scoreAsset(asaIdInput: string): Promise<AssetRiskResult> {
   const asaId = String(asaIdInput ?? "").trim();
   if (!isValidAsaId(asaId)) {
     throw new InvalidAsaIdError(`'${asaIdInput}' is not a valid ASA id (expected a number)`);
+  }
+
+  const cached = riskCache.get(asaId);
+  if (cached && Date.now() - cached.computedAt < CACHE_TTL_MS) {
+    return cached.result;
   }
 
   const resp = await indexerGet(`/v2/assets/${asaId}`);
@@ -244,7 +282,7 @@ export async function scoreAsset(asaIdInput: string): Promise<AssetRiskResult> {
   const riskLevel: AssetRiskResult["riskLevel"] =
     riskScore < 30 ? "low" : riskScore < 70 ? "medium" : "high";
 
-  return {
+  const result: AssetRiskResult = {
     asaId,
     name: params.name ?? null,
     unitName: params["unit-name"] ?? null,
@@ -262,4 +300,8 @@ export async function scoreAsset(asaIdInput: string): Promise<AssetRiskResult> {
       creatorAgeDays,
     },
   };
+
+  // Cached only on success — the error paths above throw before reaching here.
+  riskCache.set(asaId, { result, computedAt: Date.now() });
+  return result;
 }
