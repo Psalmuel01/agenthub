@@ -571,6 +571,152 @@ const routes = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Pre-payment request validation.
+//
+// The payment middleware runs before every protected handler, so without this a
+// caller pays first and only then learns their input was malformed — a bad
+// address costs $0.03 and returns 400. These are cheap, purely syntactic checks
+// that need no network access, so running them ahead of payment costs nothing
+// and stops callers being charged for requests that could never have succeeded.
+//
+// This deliberately does NOT validate anything requiring a lookup (does the
+// address exist, is the PR real, is the schema coherent). Those failures are
+// only discoverable after doing the work the caller is paying for.
+//
+// Settlement is final: the x402 SDK exposes no refund primitive, so a failure
+// after payment cannot be reversed here. That makes it worth catching
+// everything cheaply detectable up front.
+// ---------------------------------------------------------------------------
+const ALGORAND_ADDRESS = /^[A-Z2-7]{58}$/;
+const ALGORAND_TXID = /^[A-Z2-7]{52}$/;
+const ASA_ID = /^\d+$/;
+
+/**
+ * A shape check sees the captured path segments and the parsed body/query
+ * directly, rather than an Express request — app-level middleware does not
+ * populate `req.params`, and spreading a request loses its prototype methods.
+ */
+interface ShapeInput {
+  params: string[];
+  body: any;
+  query: any;
+}
+
+type ShapeCheck = (req: ShapeInput) => string | null;
+
+/** Cheap shape checks per route, keyed by method + path prefix. */
+const PRE_PAYMENT_CHECKS: [string, RegExp, ShapeCheck][] = [
+  [
+    "GET",
+    /^\/api\/wallet-risk\/(.*)$/,
+    (req) =>
+      ALGORAND_ADDRESS.test(req.params[0] ?? "")
+        ? null
+        : "path parameter must be a 58-character Algorand address",
+  ],
+  [
+    "GET",
+    /^\/api\/explain-tx\/(.*)$/,
+    (req) =>
+      ALGORAND_TXID.test((req.params[0] ?? "").toUpperCase())
+        ? null
+        : "path parameter must be a 52-character Algorand transaction id",
+  ],
+  [
+    "GET",
+    /^\/api\/asset-risk\/(.*)$/,
+    (req) => (ASA_ID.test(req.params[0] ?? "") ? null : "path parameter must be a numeric ASA id"),
+  ],
+  [
+    "GET",
+    /^\/api\/asset\/(.*)$/,
+    (req) => (ASA_ID.test(req.params[0] ?? "") ? null : "path parameter must be a numeric ASA id"),
+  ],
+  [
+    "GET",
+    /^\/api\/relationship$/,
+    (req) => {
+      const a = String(req.query.a ?? "");
+      const b = String(req.query.b ?? "");
+      if (!ALGORAND_ADDRESS.test(a)) return "query parameter 'a' must be a 58-character Algorand address";
+      if (!ALGORAND_ADDRESS.test(b)) return "query parameter 'b' must be a 58-character Algorand address";
+      if (a === b) return "addresses 'a' and 'b' must be different";
+      return null;
+    },
+  ],
+  [
+    "POST",
+    /^\/api\/verify-payment$/,
+    (req) => {
+      const b = req.body || {};
+      if (!ALGORAND_TXID.test(String(b.txid ?? "").toUpperCase())) {
+        return "'txid' must be a 52-character Algorand transaction id";
+      }
+      const hasExpectation =
+        b.expectedSender !== undefined ||
+        b.expectedReceiver !== undefined ||
+        b.expectedAsset !== undefined ||
+        b.expectedAmount !== undefined;
+      return hasExpectation
+        ? null
+        : "at least one of expectedSender, expectedReceiver, expectedAsset, expectedAmount is required";
+    },
+  ],
+  [
+    "POST",
+    /^\/api\/nl-to-sql$/,
+    (req) => {
+      const b = req.body || {};
+      if (!String(b.question ?? "").trim()) return "'question' is required";
+      if (!String(b.schema ?? "").trim()) return "'schema' is required";
+      return null;
+    },
+  ],
+  [
+    "POST",
+    /^\/api\/code-review$/,
+    (req) => {
+      const b = req.body || {};
+      const name = /^[A-Za-z0-9._-]+$/;
+      if (!name.test(String(b.owner ?? ""))) return "'owner' is required and must be a valid GitHub owner name";
+      if (!name.test(String(b.repo ?? ""))) return "'repo' is required and must be a valid GitHub repository name";
+      if (!Number.isInteger(Number(b.pull)) || Number(b.pull) <= 0) {
+        return "'pull' must be a positive integer";
+      }
+      return null;
+    },
+  ],
+  [
+    "POST",
+    /^\/api\/inference$/,
+    (req) => (String(req.body?.prompt ?? "").trim() ? null : "'prompt' is required"),
+  ],
+  [
+    "POST",
+    /^\/api\/summarize$/,
+    (req) => (String(req.body?.text ?? "").trim() ? null : "'text' is required"),
+  ],
+];
+
+app.use((req, res, next) => {
+  for (const [method, pattern, check] of PRE_PAYMENT_CHECKS) {
+    if (req.method !== method) continue;
+    const match = pattern.exec(req.path);
+    if (!match) continue;
+    const problem = check({
+      params: match.slice(1),
+      body: req.body,
+      query: req.query,
+    });
+    if (problem) {
+      return res.status(400).json({ error: problem, charged: false });
+    }
+    break;
+  }
+  next();
+});
+
 app.use(paymentMiddleware(routes, server));
 
 // ---------------------------------------------------------------------------

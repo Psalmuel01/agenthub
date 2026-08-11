@@ -188,6 +188,31 @@ they have.
 | `price: null` (asset) | No verified price source is wired. The field is present with a `priceError` so adding one later is non-breaking |
 | `readOnly`, `warnings` (nl-to-sql) | A **conservative heuristic**, not a proof: true only for a single statement beginning with a read verb and containing no write verb, false whenever output was truncated. This endpoint never executes SQL — the caller does, and should use a read-only connection |
 
+### When you are and are not charged
+
+Requests are validated for shape **before** payment is requested, so malformed input costs
+nothing:
+
+| Situation | Response | Charged |
+|---|---|---|
+| Malformed input — bad address, non-numeric ASA id, missing required field | `400` with `charged: false` | No |
+| Valid input, no payment attached | `402` with a quote | No |
+| Valid input, payment attached, request succeeds | `200` | Yes |
+| Valid input, but the resource does not exist (unknown txid, missing PR) | `404` | **Yes** |
+| Valid input, but an upstream fails (indexer, GitHub, Anthropic) | `502` | **Yes** |
+
+The last two rows are the honest limitation: those failures are only discoverable *after*
+doing the work being paid for, and x402 settlement is final — the protocol provides no
+refund primitive, so a settled payment cannot be reversed server-side.
+
+Two things reduce the exposure. Indexer calls retry with backoff before giving up, so
+transient slowness does not surface as a paid failure. And the free `/api/portfolio`
+endpoint lets you confirm an address exists and holds what you expect before spending
+anything on the paid tools that take it as input.
+
+If you hit a `404` or `502` on a paid call, open an issue with the transaction id — these
+should be rare, and a pattern of them is a bug worth fixing rather than a cost to absorb.
+
 Performance note: `asset-risk` caches computed results per asset for five minutes, so
 repeat calls return immediately. A first call for an asset not in the cache still runs the
 full computation, which can take ~12s for a widely-held asset.
