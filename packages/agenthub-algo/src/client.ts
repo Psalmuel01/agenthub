@@ -206,6 +206,28 @@ export interface CodeReviewResult {
   truncated: boolean;
 }
 
+export type SqlDialect =
+  | "postgres" | "mysql" | "sqlite" | "sqlserver" | "bigquery" | "snowflake";
+
+export interface NlToSqlRequest {
+  question: string;
+  /** CREATE TABLE statements, or a description of the tables and columns. */
+  schema: string;
+  dialect?: SqlDialect;
+}
+
+export interface NlToSqlResult {
+  sql: string;
+  dialect: SqlDialect;
+  /** True when the query only reads. Gate execution on this. */
+  readOnly: boolean;
+  /** Destructive or expensive patterns found in the generated SQL. */
+  warnings: string[];
+  /** Always false — this service generates SQL and never runs it. */
+  executed: false;
+  truncated: boolean;
+}
+
 /** Thrown when a request fails for a non-payment reason (bad input, upstream error). */
 export class AgentHubError extends Error {
   readonly status: number;
@@ -304,6 +326,14 @@ export class AgentHub {
    */
   codeReview(req: CodeReviewRequest): Promise<CodeReviewResult> {
     return this.call<CodeReviewResult>("POST", "/api/code-review", req);
+  }
+
+  /**
+   * Translate a question plus schema into SQL. Generates only — never executes.
+   * Check `readOnly` before running the result. $0.03 per call.
+   */
+  nlToSql(req: NlToSqlRequest): Promise<NlToSqlResult> {
+    return this.call<NlToSqlResult>("POST", "/api/nl-to-sql", req);
   }
 
   /** Generate text from a prompt. $0.02 per call. */

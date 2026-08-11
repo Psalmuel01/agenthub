@@ -19,6 +19,7 @@ import {
 } from "./config";
 import { renderLandingPage, renderLlmsTxt } from "./landing";
 import { anthropicComplete, AnthropicError } from "./services/anthropic";
+import { nlToSql, InvalidSqlRequestError } from "./services/nl-to-sql";
 import {
   reviewPullRequest,
   InvalidPullRequestError,
@@ -412,6 +413,44 @@ const codeReviewDiscovery = declareDiscoveryExtension({
   },
 });
 
+// ---------------------------------------------------------------------------
+// Route 10: natural language to SQL (generate only, never executes)
+// ---------------------------------------------------------------------------
+const nlToSqlDiscovery = declareDiscoveryExtension({
+  bodyType: "json",
+  input: {
+    question: "Top 5 users by total completed order value in 2026",
+    schema: "CREATE TABLE users (id BIGINT PRIMARY KEY, email TEXT); CREATE TABLE orders (...)",
+    dialect: "postgres",
+  },
+  inputSchema: {
+    properties: {
+      question: { type: "string", maxLength: 2000, description: "The question to answer, in plain language" },
+      schema: {
+        type: "string",
+        maxLength: 20000,
+        description: "CREATE TABLE statements, or a description of the tables and columns",
+      },
+      dialect: {
+        type: "string",
+        enum: ["postgres", "mysql", "sqlite", "sqlserver", "bigquery", "snowflake"],
+        description: "Target SQL dialect. Defaults to postgres.",
+      },
+    },
+    required: ["question", "schema"],
+  },
+  output: {
+    example: {
+      sql: "SELECT u.id, u.email, SUM(o.total) AS total_value FROM users u JOIN orders o ...",
+      dialect: "postgres",
+      readOnly: true,
+      warnings: [],
+      executed: false,
+      truncated: false,
+    },
+  },
+});
+
 const routes = {
   "POST /api/inference": {
     accepts: usdcPrice("0.02"), // $0.02
@@ -433,6 +472,18 @@ const routes = {
   },
   // Route-key path params use the middleware's [bracket] syntax (NOT Express ":param").
   // The Express handler below still registers the route as "/api/wallet-risk/:address".
+  "POST /api/nl-to-sql": {
+    accepts: usdcPrice("0.03"), // $0.03
+    description:
+      "Natural language to SQL: send a plain-language question plus your table schema and " +
+      "receive a ready-to-run SQL query. Supports postgres, mysql, sqlite, sqlserver, " +
+      "bigquery, and snowflake dialects. Returns the query plus a readOnly flag and a " +
+      "warnings array identifying destructive or expensive operations, so an agent can gate " +
+      "execution before running anything. This endpoint GENERATES SQL ONLY — it never " +
+      "connects to a database and never executes the query. Powered by Claude Haiku 4.5. " +
+      "No API key or account — pay $0.03 per call in USDC.",
+    extensions: nlToSqlDiscovery,
+  },
   "POST /api/code-review": {
     accepts: usdcPrice("0.08"), // $0.08
     description:
@@ -588,6 +639,22 @@ app.get("/api/wallet-risk/:address", async (req, res) => {
     }
     if (err instanceof WalletRiskError) {
       return res.status(502).json({ error: "Wallet risk analysis failed", detail: err.message });
+    }
+    throw err;
+  }
+});
+
+app.post("/api/nl-to-sql", async (req, res) => {
+  const { question, schema, dialect } = req.body || {};
+  try {
+    const result = await nlToSql({ question, schema, dialect });
+    res.json(result);
+  } catch (err) {
+    if (err instanceof InvalidSqlRequestError) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err instanceof AnthropicError) {
+      return res.status(502).json({ error: "Upstream SQL generation failed", detail: err.message });
     }
     throw err;
   }

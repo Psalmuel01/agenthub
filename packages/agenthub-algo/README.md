@@ -70,6 +70,7 @@ OpenAI function calling works the same way with `openaiTools()`.
 | `verifyPayment({...})` | $0.02 | Pass/fail verdict that a transaction matched your expectations |
 | `assetInfo(asaId)` | $0.02 | ASA name, decimals, real circulating supply, config flags |
 | `codeReview({owner,repo,pull})` | $0.08 | Structured review of a GitHub PR diff — bugs with file and line |
+| `nlToSql({question,schema})` | $0.03 | SQL from a question — generates only, never executes |
 | `inference(prompt)` | $0.02 | Generated text |
 | `summarize(text, opts?)` | $0.03 | Concise summary of up to 50,000 characters |
 

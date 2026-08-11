@@ -194,6 +194,35 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
+    name: "natural_language_to_sql",
+    description:
+      "Translate a plain-language question into a SQL query against a schema you supply. " +
+      "Call this when you need to query a database and would otherwise hand-write SQL. You " +
+      "must provide the schema — CREATE TABLE statements or a description of the tables and " +
+      "columns — because the query is built only from what you supply and never invents " +
+      "tables. Supports postgres, mysql, sqlite, sqlserver, bigquery, and snowflake. " +
+      "IMPORTANT: this generates SQL and never executes it. Before running the result, check " +
+      "`readOnly` (false means the query writes or destroys data) and read `warnings`. If " +
+      "the question cannot be answered from the schema, the SQL returned is a comment " +
+      "starting with '-- cannot' rather than a guess.",
+    input_schema: {
+      type: "object",
+      properties: {
+        question: { type: "string", description: "The question to answer, in plain language." },
+        schema: {
+          type: "string",
+          description: "CREATE TABLE statements, or a description of tables and columns.",
+        },
+        dialect: {
+          type: "string",
+          enum: ["postgres", "mysql", "sqlite", "sqlserver", "bigquery", "snowflake"],
+          description: "Target SQL dialect. Defaults to postgres.",
+        },
+      },
+      required: ["question", "schema"],
+    },
+  },
+  {
     name: "agenthub_summarize",
     description:
       "Summarize a long block of text (up to 50,000 characters) into a concise summary that " +
@@ -255,6 +284,8 @@ export async function executeTool(
       return hub.relationship(input.a, input.b);
     case "github_code_review":
       return hub.codeReview(input as any);
+    case "natural_language_to_sql":
+      return hub.nlToSql(input as any);
     case "agenthub_summarize":
       return { summary: await hub.summarize(input.text, input) };
     case "agenthub_generate_text":

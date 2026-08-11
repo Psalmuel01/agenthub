@@ -1,6 +1,6 @@
 # AgentHub
 
-**Ten pay-per-call tools your AI agent can use — no signup, no API key, no subscription.**
+**Eleven pay-per-call tools your AI agent can use — no signup, no API key, no subscription.**
 **One of them is free.**
 
 Live on Algorand mainnet: **https://agenthub-production-8c75.up.railway.app**
@@ -19,6 +19,7 @@ layer — there is no account to create and no key to manage.
 | `POST /api/verify-payment` | $0.02 | Pass/fail check that a transaction matched what you expected. No LLM. |
 | `GET /api/asset/{asaId}` | $0.02 | ASA metadata: name, decimals, real circulating supply, config flags. No LLM. |
 | `POST /api/code-review` | $0.08 | GitHub PR in, structured review out — bugs with file and line (Claude Haiku 4.5). |
+| `POST /api/nl-to-sql` | $0.03 | Question + schema in, SQL out. Generates only — never executes. |
 | `POST /api/inference` | $0.02 | Prompt in, generated text out (Claude Haiku 4.5). |
 | `POST /api/summarize` | $0.03 | Up to 50,000 characters in, concise summary out. |
 

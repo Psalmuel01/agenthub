@@ -275,6 +275,20 @@ export const TOOLS: ToolListing[] = [
   },
   {
     method: "POST",
+    path: "/api/nl-to-sql",
+    price: "$0.03",
+    name: "Natural language to SQL",
+    searchTerm: "natural language to SQL",
+    blurb:
+      "Question plus schema in, a ready-to-run SQL query out, with a readOnly flag and " +
+      "warnings for destructive operations. Generates only — never executes.",
+    input:
+      '{ "question": string (max 2000), "schema": string (max 20000), ' +
+      '"dialect"?: "postgres" | "mysql" | "sqlite" | "sqlserver" | "bigquery" | "snowflake" }',
+    output: "{ sql, dialect, readOnly, warnings, executed (always false), truncated }",
+  },
+  {
+    method: "POST",
     path: "/api/inference",
     price: "$0.02",
     name: "LLM text generation",
