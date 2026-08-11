@@ -172,6 +172,28 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
+    name: "github_code_review",
+    description:
+      "Review a GitHub pull request and report concrete problems in the diff. Call this when " +
+      "asked to review, audit, or check a PR, or before merging code you did not write. " +
+      "Supply the repository owner, repo name, and PR number — the diff is fetched for you, " +
+      "so you do not need to retrieve it first. Returns correctness bugs, security issues, " +
+      "and error-handling gaps with the file and line where possible, plus PR metadata " +
+      "(title, files changed, additions, deletions). Use the optional focus parameter to " +
+      "steer the review, e.g. 'security' or 'concurrency'. Works on public repositories. " +
+      "Check `diffTruncated` — when true, only part of the diff was reviewed.",
+    input_schema: {
+      type: "object",
+      properties: {
+        owner: { type: "string", description: "Repository owner, e.g. 'algorand'." },
+        repo: { type: "string", description: "Repository name, e.g. 'go-algorand'." },
+        pull: { type: "number", description: "Pull request number." },
+        focus: { type: "string", description: "Optional review focus, e.g. 'security'." },
+      },
+      required: ["owner", "repo", "pull"],
+    },
+  },
+  {
     name: "agenthub_summarize",
     description:
       "Summarize a long block of text (up to 50,000 characters) into a concise summary that " +
@@ -231,6 +253,8 @@ export async function executeTool(
       return hub.portfolio(input.address);
     case "algorand_address_relationship":
       return hub.relationship(input.a, input.b);
+    case "github_code_review":
+      return hub.codeReview(input as any);
     case "agenthub_summarize":
       return { summary: await hub.summarize(input.text, input) };
     case "agenthub_generate_text":

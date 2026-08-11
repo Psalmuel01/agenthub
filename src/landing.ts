@@ -261,6 +261,20 @@ export const TOOLS: ToolListing[] = [
   },
   {
     method: "POST",
+    path: "/api/code-review",
+    price: "$0.08",
+    name: "GitHub pull request review",
+    searchTerm: "GitHub code review",
+    blurb:
+      "Give a repo and PR number, get a structured review of the diff — concrete bugs, " +
+      "security issues, and error-handling gaps with file and line. Fetches the diff for you.",
+    input: '{ "owner": string, "repo": string, "pull": number, "focus"?: string }',
+    output:
+      "{ repository, pull, title, review, filesChanged, additions, deletions, " +
+      "diffBytesReviewed, diffTruncated, truncated }",
+  },
+  {
+    method: "POST",
     path: "/api/inference",
     price: "$0.02",
     name: "LLM text generation",

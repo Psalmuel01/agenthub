@@ -183,6 +183,29 @@ export interface RelationshipResult {
   windowComplete: boolean;
 }
 
+export interface CodeReviewRequest {
+  owner: string;
+  repo: string;
+  pull: number;
+  /** Optional focus, e.g. "security" or "error handling". */
+  focus?: string;
+}
+
+export interface CodeReviewResult {
+  repository: string;
+  pull: number;
+  title: string | null;
+  review: string;
+  filesChanged: number;
+  additions: number;
+  deletions: number;
+  diffBytesReviewed: number;
+  /** True when the diff exceeded the size cap and was truncated. */
+  diffTruncated: boolean;
+  /** True when the review itself hit the output cap. */
+  truncated: boolean;
+}
+
 /** Thrown when a request fails for a non-payment reason (bad input, upstream error). */
 export class AgentHubError extends Error {
   readonly status: number;
@@ -273,6 +296,14 @@ export class AgentHub {
       "GET",
       `/api/relationship?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`,
     );
+  }
+
+  /**
+   * Review a GitHub pull request diff. Fetches the diff for you and returns
+   * concrete findings with file and line. $0.08 per call.
+   */
+  codeReview(req: CodeReviewRequest): Promise<CodeReviewResult> {
+    return this.call<CodeReviewResult>("POST", "/api/code-review", req);
   }
 
   /** Generate text from a prompt. $0.02 per call. */

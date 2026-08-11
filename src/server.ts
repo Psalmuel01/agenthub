@@ -20,6 +20,12 @@ import {
 import { renderLandingPage, renderLlmsTxt } from "./landing";
 import { anthropicComplete, AnthropicError } from "./services/anthropic";
 import {
+  reviewPullRequest,
+  InvalidPullRequestError,
+  PullRequestNotFoundError,
+  GitHubUnavailableError,
+} from "./services/code-review";
+import {
   scoreWallet,
   InvalidAddressError,
   WalletRiskError,
@@ -372,6 +378,40 @@ const assetInfoDiscovery = declareDiscoveryExtension({
   },
 });
 
+// ---------------------------------------------------------------------------
+// Route 9: GitHub pull request review
+// ---------------------------------------------------------------------------
+const codeReviewDiscovery = declareDiscoveryExtension({
+  bodyType: "json",
+  input: { owner: "algorand", repo: "go-algorand", pull: 6100 },
+  inputSchema: {
+    properties: {
+      owner: { type: "string", description: "Repository owner, e.g. 'algorand'" },
+      repo: { type: "string", description: "Repository name, e.g. 'go-algorand'" },
+      pull: { type: "number", description: "Pull request number" },
+      focus: {
+        type: "string",
+        description: "Optional review focus, e.g. 'security' or 'error handling'",
+      },
+    },
+    required: ["owner", "repo", "pull"],
+  },
+  output: {
+    example: {
+      repository: "algorand/go-algorand",
+      pull: 6100,
+      title: "ledger: Implement JSON encoding for StateDelta",
+      review: "Nil pointer dereference in ToSerializable() at statedelta.go:311 ...",
+      filesChanged: 2,
+      additions: 175,
+      deletions: 0,
+      diffBytesReviewed: 6700,
+      diffTruncated: false,
+      truncated: false,
+    },
+  },
+});
+
 const routes = {
   "POST /api/inference": {
     accepts: usdcPrice("0.02"), // $0.02
@@ -393,6 +433,17 @@ const routes = {
   },
   // Route-key path params use the middleware's [bracket] syntax (NOT Express ":param").
   // The Express handler below still registers the route as "/api/wallet-risk/:address".
+  "POST /api/code-review": {
+    accepts: usdcPrice("0.08"), // $0.08
+    description:
+      "GitHub pull request code review: give a repository owner, name, and PR number and " +
+      "receive a structured review of the diff — concrete correctness bugs, security issues, " +
+      "and error-handling gaps, each with the file and line where possible. Fetches the diff " +
+      "from GitHub for you and returns PR metadata (title, files changed, additions, " +
+      "deletions) alongside the review. Optional focus parameter to steer the review. Powered " +
+      "by Claude Haiku 4.5. No API key or account — pay $0.08 per call in USDC.",
+    extensions: codeReviewDiscovery,
+  },
   "POST /api/verify-payment": {
     accepts: usdcPrice("0.02"), // $0.02
     description:
@@ -537,6 +588,28 @@ app.get("/api/wallet-risk/:address", async (req, res) => {
     }
     if (err instanceof WalletRiskError) {
       return res.status(502).json({ error: "Wallet risk analysis failed", detail: err.message });
+    }
+    throw err;
+  }
+});
+
+app.post("/api/code-review", async (req, res) => {
+  const { owner, repo, pull, focus } = req.body || {};
+  try {
+    const result = await reviewPullRequest({ owner, repo, pull, focus });
+    res.json(result);
+  } catch (err) {
+    if (err instanceof InvalidPullRequestError) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err instanceof PullRequestNotFoundError) {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err instanceof GitHubUnavailableError) {
+      return res.status(502).json({ error: "GitHub lookup failed", detail: err.message });
+    }
+    if (err instanceof AnthropicError) {
+      return res.status(502).json({ error: "Upstream review call failed", detail: err.message });
     }
     throw err;
   }
