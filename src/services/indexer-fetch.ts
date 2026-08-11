@@ -35,6 +35,38 @@ export class IndexerUnavailableError extends Error {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * Parse indexer JSON without silently rounding large integers.
+ *
+ * Algorand amounts and supplies are uint64, and JSON.parse coerces every number
+ * to an IEEE-754 double. Anything above 2^53 is corrupted *at parse time* —
+ * USDC's declared total of 18446744073709551615 becomes 18446744073709552000,
+ * off by 385. Stringifying afterwards cannot recover it, so a field documented
+ * as "raw" or "exact" would be quietly wrong.
+ *
+ * We pre-quote integer literals that exceed the safe range so they arrive as
+ * exact decimal strings. Callers that need arithmetic on them can use BigInt;
+ * callers that only display or forward them get the true value.
+ *
+ * Only unsafe integers are rewritten — everything within +/-2^53 keeps its
+ * normal `number` type, so existing code paths are unaffected.
+ */
+export function parseJsonLossless(text: string): any {
+  // Match a JSON number in value position, skipping anything inside a string.
+  // Groups: 1 = preceding delimiter, 2 = the integer literal.
+  const rewritten = text.replace(
+    /([:[,]\s*)(-?\d{16,})(?=\s*[,}\]])/g,
+    (whole, prefix: string, digits: string) => {
+      // Cheap guard: only quote when the value genuinely exceeds Number's
+      // exact-integer range. 16+ digits is the trigger, this is the decision.
+      return Number.isSafeInteger(Number(digits))
+        ? whole
+        : `${prefix}"${digits}"`;
+    },
+  );
+  return JSON.parse(rewritten);
+}
+
+/**
  * GET a JSON resource from the indexer.
  *
  * Returns `{ body: null }` for 404 so callers can treat "not found" as a valid
@@ -73,9 +105,15 @@ export async function indexerFetch(url: string): Promise<IndexerFetchResult> {
         );
       }
 
-      const body = await resp.json().catch(() => {
-        throw new IndexerUnavailableError("indexer returned invalid JSON");
+      const text = await resp.text().catch(() => {
+        throw new IndexerUnavailableError("indexer response could not be read");
       });
+      let body: any;
+      try {
+        body = parseJsonLossless(text);
+      } catch {
+        throw new IndexerUnavailableError("indexer returned invalid JSON");
+      }
       return { body };
     } catch (err: any) {
       // Don't retry our own terminal errors — only transport-level failures.

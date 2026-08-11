@@ -186,6 +186,7 @@ they have.
 | `truncated` (LLM endpoints) | The model hit its output cap mid-response; text is usable but incomplete |
 | `diffTruncated` (code-review) | The diff exceeded the size cap; only the reviewed portion was seen |
 | `price: null` (asset) | No verified price source is wired. The field is present with a `priceError` so adding one later is non-breaking |
+| `amountRaw`, `totalSupplyRaw` | Exact base-unit values, as decimal **strings**. Algorand amounts are uint64 and can exceed the range a JSON number represents exactly, so the sibling `amount` / `totalSupply` fields are convenience floats and may be rounded. Parse the raw fields with BigInt for arithmetic |
 | `readOnly`, `warnings` (nl-to-sql) | A **conservative heuristic**, not a proof: true only for a single statement beginning with a read verb and containing no write verb, false whenever output was truncated. This endpoint never executes SQL — the caller does, and should use a read-only connection |
 
 ### When you are and are not charged

@@ -53,9 +53,19 @@ export interface AssetInfoResult {
   name: string | null;
   unitName: string | null;
   decimals: number;
-  /** Declared maximum supply, in whole units. */
+  /**
+   * Declared maximum supply in whole units, as a JSON number.
+   *
+   * CONVENIENCE ONLY. Algorand supplies are uint64 and can exceed the exact
+   * range of an IEEE-754 double, so this may be rounded — USDC's declared total
+   * displays as 18446744073709.55. Use `totalSupplyRaw` for anything that must
+   * be exact.
+   */
   totalSupply: number;
-  /** Raw declared total in base units, as a string (can exceed Number precision). */
+  /**
+   * Declared total in base units, exact. Preserved as a decimal string because
+   * the value can exceed 2^53; parse with BigInt if you need arithmetic.
+   */
   totalSupplyRaw: string;
   /** Declared total minus the reserve's unissued holding, in whole units. */
   circulatingSupply: number;
