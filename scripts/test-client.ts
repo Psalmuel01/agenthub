@@ -79,7 +79,7 @@ async function main() {
   //    toClientAvmSigner wants a base64-encoded 64-byte key; algosdk gives us
   //    exactly that from the mnemonic.
   const mnemonic = requireEnv("AVM_CLIENT_MNEMONIC");
-  const { sk, addr } = resolveAccount(mnemonic);
+  const { sk, addr } = await resolveAccount(mnemonic);
   const privateKeyBase64 = Buffer.from(sk).toString("base64");
   const signer = toClientAvmSigner(privateKeyBase64);
 

@@ -23,7 +23,7 @@ async function main() {
     throw new Error('Set MNEMONIC="<25 words>" for the account to opt in. Example:\n  MNEMONIC="a b c ... y" npm run optin-usdc');
   }
 
-  const account = resolveAccount(mnemonic);
+  const account = await resolveAccount(mnemonic);
   const address = algosdk.encodeAddress(account.addr.publicKey);
   const algod = new algosdk.Algodv2("", ALGOD_URL, "");
 

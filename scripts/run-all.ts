@@ -282,7 +282,7 @@ async function main() {
   const core = new x402Client();
   let payer = "";
   if (mnemonic) {
-    const account = resolveAccount(mnemonic);
+    const account = await resolveAccount(mnemonic);
     const { sk } = account;
     payer = account.addr;
     if (!DRY) {

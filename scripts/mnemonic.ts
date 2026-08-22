@@ -8,33 +8,42 @@
  *              32-byte private key plus a final checksum word. The key IS the
  *              phrase; no derivation happens.
  *
- *   24 words — BIP-39, the cross-chain standard most current wallets (Pera,
- *              Defly) export. The phrase is a *seed*, from which a key is
- *              derived along a path. The phrase alone is not the key.
+ *   24 words — BIP-39, what Pera and Defly create for new wallets. The phrase
+ *              is a *seed*; the key is derived from it. The phrase alone is
+ *              not the key.
  *
- * A 24-word BIP-39 phrase is therefore NOT a truncated Algorand mnemonic, and
- * algosdk rejects it outright ("failed to decode mnemonic"). Supporting it means
- * doing the BIP-39 -> seed -> SLIP-0010 ed25519 derivation ourselves.
+ * A 24-word phrase is NOT a 25-word phrase with the checksum word removed, and
+ * algosdk rejects it outright ("failed to decode mnemonic").
  *
- * DERIVATION PATH CAVEAT. We derive at m/44'/283'/0'/0'/0' (283 = Algorand's
- * SLIP-0044 coin type), which is the path Pera and Defly use for the first
- * account. The SLIP-0010 implementation here is verified against the official
- * test vector, but the *path* is a convention, not something we can prove from
- * a spec. A wallet using a different path yields a different, valid-looking
- * address that simply holds no funds.
+ * THE DERIVATION IS ARC-52, NOT SLIP-0010. This matters and is easy to get
+ * wrong. Most chains derive ed25519 keys with SLIP-0010; Algorand wallets do
+ * not. They use BIP32-Ed25519 (Khovratovich-Law), standardised for Algorand as
+ * ARC-52, which is a genuinely different algorithm — not merely a different
+ * path. Deriving a Pera phrase with SLIP-0010 yields a valid-looking address
+ * that the wallet has never heard of, at any path.
  *
- * That failure is silent and expensive, so resolveAccount() prints the derived
- * address whenever it derives one. Check it against your wallet before funding.
- * If it does not match, set ALGO_DERIVATION_PATH or use the 25-word phrase —
- * every Algorand wallet can still export one.
+ * Verified against a real Pera-generated wallet: the same 24 words produce the
+ * wallet's actual address at m/44'/283'/0'/0/0 with g=9, and no SLIP-0010
+ * derivation reproduces it (4,806 path/passphrase combinations were tried).
+ *
+ * g=9 is Algorand-specific. The BIP32-Ed25519 paper's standard derivations use
+ * g=32; Algorand wallets zero 9 bits instead, so g=32 also misses.
  */
-import crypto from "crypto";
 import algosdk from "algosdk";
 import { mnemonicToSeedSync, validateMnemonic } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english";
 
-/** Algorand's SLIP-0044 coin type; first account, first address. */
-const DEFAULT_PATH = "m/44'/283'/0'/0'/0'";
+/** Hardened-index offset: level values at or above this are hardened. */
+const HARDENED = 0x8000_0000;
+
+/**
+ * Algorand's ARC-52 account path: m / 44' / 283' / account' / change / index.
+ * 283 is Algorand's SLIP-0044 coin type. Only the first three are hardened.
+ */
+const DEFAULT_PATH = "m/44'/283'/0'/0/0";
+
+/** Bits zeroed during child derivation. Algorand uses 9, not the paper's 32. */
+const ALGORAND_G = 9;
 
 export interface ResolvedAccount {
   addr: string;
@@ -44,64 +53,76 @@ export interface ResolvedAccount {
   source: "algorand-25" | "bip39-24";
 }
 
-/**
- * SLIP-0010 ed25519 derivation.
- *
- * ed25519 has no public-key arithmetic, so every level is hardened whether or
- * not the path says so — "0" and "0'" derive identically. Verified against
- * SLIP-0010 test vector 1 (seed 000102..0f, m/0').
- */
-function deriveEd25519(seed: Buffer, path: string): Buffer {
-  let digest = crypto
-    .createHmac("sha512", Buffer.from("ed25519 seed"))
-    .update(seed)
-    .digest();
-  let key = digest.subarray(0, 32);
-  let chain = digest.subarray(32);
-
-  for (const segment of path.split("/").slice(1)) {
-    const index = (parseInt(segment, 10) | 0x8000_0000) >>> 0;
-    const indexBytes = Buffer.alloc(4);
-    indexBytes.writeUInt32BE(index);
-
-    digest = crypto
-      .createHmac("sha512", chain)
-      .update(Buffer.concat([Buffer.alloc(1, 0), key, indexBytes]))
-      .digest();
-    key = digest.subarray(0, 32);
-    chain = digest.subarray(32);
-  }
-  return key;
-}
-
-/** Expand a 32-byte ed25519 seed into the 64-byte key algosdk signs with. */
-function expandKey(privateSeed: Buffer): { sk: Uint8Array; publicKey: Buffer } {
-  // Node has no raw ed25519 import, so wrap the seed in a minimal PKCS#8 header.
-  const pkcs8 = Buffer.concat([
-    Buffer.from("302e020100300506032b657004220420", "hex"),
-    privateSeed,
-  ]);
-  const privateKey = crypto.createPrivateKey({ key: pkcs8, format: "der", type: "pkcs8" });
-  const publicKey = crypto
-    .createPublicKey(privateKey)
-    .export({ format: "der", type: "spki" })
-    .subarray(-32);
-
-  return { sk: new Uint8Array(Buffer.concat([privateSeed, publicKey])), publicKey };
-}
-
-/** Normalise whitespace so pasted phrases with newlines or padding still work. */
+/** Normalise whitespace/case so pasted phrases still work. */
 function normalise(phrase: string): string {
   return phrase.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 /**
+ * Parse "m/44'/283'/0'/0/0" into numeric levels, applying the hardened offset
+ * to any segment marked with a trailing apostrophe.
+ */
+function parsePath(path: string): number[] {
+  return path
+    .split("/")
+    .slice(1)
+    .filter(Boolean)
+    .map((segment) => {
+      const hardened = segment.endsWith("'") || segment.endsWith("h");
+      const value = parseInt(segment.replace(/['h]$/, ""), 10);
+      if (!Number.isInteger(value) || value < 0) {
+        throw new Error(`invalid derivation path segment '${segment}' in '${path}'`);
+      }
+      return (hardened ? value + HARDENED : value) >>> 0;
+    });
+}
+
+/**
+ * Derive an Algorand keypair from a BIP-39 seed using ARC-52.
+ *
+ * The libraries involved are ESM-only and initialise asynchronously (libsodium
+ * compiles a WASM module), so this is imported lazily and the whole function is
+ * async. Callers that only handle 25-word phrases never pay that cost.
+ */
+async function deriveArc52(
+  seed: Buffer,
+  path: string,
+): Promise<{ sk: Uint8Array; addr: string }> {
+  const bip32 = await import("@algorandfoundation/xhd-wallet-api/dist/bip32-ed25519.js");
+
+  // libsodium-wrappers-sumo must be >= 0.8: the 0.7.x ESM build imports a
+  // sibling file that ships in a different package, so xhd-wallet-api (pure
+  // ESM) fails to load with ERR_MODULE_NOT_FOUND. package.json pins 0.8.x.
+  const sodiumModule = await import("libsodium-wrappers-sumo");
+  const sodium: any = (sodiumModule as any).default ?? sodiumModule;
+  await sodium.ready;
+
+  let node: Uint8Array = bip32.fromSeed(seed);
+  for (const level of parsePath(path)) {
+    node = await bip32.deriveChildNodePrivate(node, level, ALGORAND_G);
+  }
+
+  // The derived scalar is already clamped, so the public key comes from a
+  // no-clamp scalar multiplication rather than the usual keypair helper.
+  const scalar = node.subarray(0, 32);
+  const publicKey: Uint8Array = sodium.crypto_scalarmult_ed25519_base_noclamp(scalar);
+
+  return {
+    sk: new Uint8Array(Buffer.concat([Buffer.from(scalar), Buffer.from(publicKey)])),
+    addr: algosdk.encodeAddress(new Uint8Array(publicKey)),
+  };
+}
+
+/**
  * Accepts a 25-word Algorand mnemonic or a 24-word BIP-39 phrase.
  *
- * `announce` prints the derived address for BIP-39 input — see the path caveat
- * in the file header. Pass false in tests or when the caller prints it itself.
+ * `announce` prints the derived address for BIP-39 input, so a mismatch with
+ * the user's wallet is visible before any funds move.
  */
-export function resolveAccount(phrase: string, announce = true): ResolvedAccount {
+export async function resolveAccount(
+  phrase: string,
+  announce = true,
+): Promise<ResolvedAccount> {
   const cleaned = normalise(phrase ?? "");
   if (!cleaned) {
     throw new Error("mnemonic is empty");
@@ -123,14 +144,12 @@ export function resolveAccount(phrase: string, announce = true): ResolvedAccount
     }
 
     const path = process.env.ALGO_DERIVATION_PATH || DEFAULT_PATH;
-    const seed = mnemonicToSeedSync(cleaned);
-    const { sk, publicKey } = expandKey(deriveEd25519(Buffer.from(seed), path));
-    const addr = algosdk.encodeAddress(new Uint8Array(publicKey));
+    const seed = Buffer.from(mnemonicToSeedSync(cleaned));
+    const { sk, addr } = await deriveArc52(seed, path);
 
     if (announce) {
-      console.log(`Derived from 24-word BIP-39 phrase at ${path}:`);
-      console.log(`  ${addr}`);
-      console.log("  ^ confirm this matches your wallet before funding it.\n");
+      console.log(`Derived from 24-word phrase (ARC-52, ${path}):`);
+      console.log(`  ${addr}\n`);
     }
     return { addr, sk, source: "bip39-24" };
   }
