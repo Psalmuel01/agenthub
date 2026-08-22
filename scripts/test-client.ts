@@ -19,6 +19,7 @@ import algosdk from "algosdk";
 import { x402Client, x402HTTPClient } from "@x402-avm/core/client";
 import { registerExactAvmScheme } from "@x402-avm/avm/exact/client";
 import { toClientAvmSigner } from "@x402-avm/avm";
+import { resolveAccount } from "./mnemonic";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -78,7 +79,7 @@ async function main() {
   //    toClientAvmSigner wants a base64-encoded 64-byte key; algosdk gives us
   //    exactly that from the mnemonic.
   const mnemonic = requireEnv("AVM_CLIENT_MNEMONIC");
-  const { sk, addr } = algosdk.mnemonicToSecretKey(mnemonic.trim());
+  const { sk, addr } = resolveAccount(mnemonic);
   const privateKeyBase64 = Buffer.from(sk).toString("base64");
   const signer = toClientAvmSigner(privateKeyBase64);
 

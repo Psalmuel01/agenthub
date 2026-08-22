@@ -12,6 +12,7 @@
  */
 import "dotenv/config";
 import algosdk from "algosdk";
+import { resolveAccount } from "./mnemonic";
 
 const USDC_TESTNET_ASA_ID = 10458941;
 const ALGOD_URL = process.env.ALGOD_URL || "https://testnet-api.algonode.cloud";
@@ -22,7 +23,7 @@ async function main() {
     throw new Error('Set MNEMONIC="<25 words>" for the account to opt in. Example:\n  MNEMONIC="a b c ... y" npm run optin-usdc');
   }
 
-  const account = algosdk.mnemonicToSecretKey(mnemonic);
+  const account = resolveAccount(mnemonic);
   const address = algosdk.encodeAddress(account.addr.publicKey);
   const algod = new algosdk.Algodv2("", ALGOD_URL, "");
 

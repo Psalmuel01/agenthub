@@ -21,6 +21,7 @@ import algosdk from "algosdk";
 import { x402Client, x402HTTPClient } from "@x402-avm/core/client";
 import { registerExactAvmScheme } from "@x402-avm/avm/exact/client";
 import { toClientAvmSigner } from "@x402-avm/avm";
+import { resolveAccount } from "./mnemonic";
 
 /** Pause between paid calls so settlement of one lands before the next is built. */
 const SETTLE_GAP_MS = 2_000;
@@ -233,8 +234,9 @@ async function main() {
   const core = new x402Client();
   let payer = "";
   if (mnemonic) {
-    const { sk, addr } = algosdk.mnemonicToSecretKey(mnemonic.trim());
-    payer = String(addr);
+    const account = resolveAccount(mnemonic);
+    const { sk } = account;
+    payer = account.addr;
     if (!DRY) {
       registerExactAvmScheme(core, {
         signer: toClientAvmSigner(Buffer.from(sk).toString("base64")),
