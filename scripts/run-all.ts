@@ -135,7 +135,44 @@ function preview(text: string, max = 220): string {
   return oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine;
 }
 
-async function runCall(http: x402HTTPClient, call: Call): Promise<Outcome> {
+/**
+ * Explain a refused payment by checking the payer on chain.
+ *
+ * A 402 on the retry is nearly always the wallet, not the server: no ALGO for
+ * fees, no USDC, or no opt-in to the asset. Checking beats guessing, and for a
+ * freshly derived address "account not found" also hints the derivation path
+ * may be wrong.
+ */
+async function diagnosePayer(addr: string, indexer: string): Promise<string[]> {
+  const notes: string[] = [];
+  try {
+    const acct = await fetch(`${indexer}/v2/accounts/${addr}`).then((r) => r.json() as any);
+    if (acct?.message || !acct?.account) {
+      notes.push("this account does not exist on chain — it has never been funded.");
+      notes.push("if you just switched to a 24-word phrase, confirm the derived address");
+      notes.push("matches your wallet: an unfunded account and a wrong derivation path");
+      notes.push("look identical from here.");
+      return notes;
+    }
+    const algo = Number(acct.account.amount ?? 0) / 1e6;
+    notes.push(`ALGO balance: ${algo.toFixed(6)}${algo < 0.2 ? "  <- too low for fees" : ""}`);
+
+    const held = await fetch(`${indexer}/v2/accounts/${addr}/assets?asset-id=${USDC_ASA}`)
+      .then((r) => r.json() as any);
+    const usdc = (held?.assets ?? [])[0];
+    if (!usdc) {
+      notes.push("not opted in to USDC — run: npm run optin-usdc");
+    } else {
+      const bal = Number(usdc.amount ?? 0) / 1e6;
+      notes.push(`USDC balance: ${bal.toFixed(6)}${bal <= 0 ? "  <- no USDC to pay with" : ""}`);
+    }
+  } catch {
+    notes.push("(could not reach the indexer to diagnose)");
+  }
+  return notes;
+}
+
+async function runCall(http: x402HTTPClient, call: Call, payer: string): Promise<Outcome> {
   const url = `${baseUrl}${call.path}`;
   const started = Date.now();
   const init: RequestInit = {
@@ -199,12 +236,23 @@ async function runCall(http: x402HTTPClient, call: Call): Promise<Outcome> {
     /* no settlement header — surfaced by the status itself */
   }
 
-  return {
-    name: call.name,
-    status: paid.status,
-    ms,
-    note: paid.ok ? (txId ? `paid ${txId.slice(0, 8)}…` : "paid") : "FAILED AFTER PAYMENT",
-  };
+  // A second 402 means the payment was REFUSED, not taken — nothing was charged.
+  // Usually an unfunded wallet, a missing USDC opt-in, or settlement of a prior
+  // call not yet confirmed. Distinguish it from a genuine post-payment failure,
+  // where money did move and the caller got nothing back.
+  let note: string;
+  if (paid.ok) {
+    note = txId ? `paid ${txId.slice(0, 8)}…` : "paid";
+  } else if (paid.status === 402) {
+    note = "payment refused — not charged";
+    console.log("\n  Payment was refused, so nothing was charged. Checking the payer:");
+    const indexer = process.env.INDEXER_URL || "https://mainnet-idx.algonode.cloud";
+    for (const line of await diagnosePayer(payer, indexer)) console.log(`    ${line}`);
+  } else {
+    note = `FAILED AFTER PAYMENT (${paid.status})`;
+  }
+
+  return { name: call.name, status: paid.status, ms, note };
 }
 
 async function main() {
@@ -264,7 +312,7 @@ async function main() {
     if (!DRY && i > 0) await new Promise((r) => setTimeout(r, SETTLE_GAP_MS));
 
     try {
-      results.push(await runCall(http, call));
+      results.push(await runCall(http, call, payer));
     } catch (err: any) {
       console.log(`  error: ${err?.message ?? err}`);
       results.push({ name: call.name, status: "ERR", ms: 0, note: String(err?.message ?? err).slice(0, 60) });
