@@ -20,8 +20,7 @@ import "dotenv/config";
 import algosdk from "algosdk";
 import { x402Client, x402HTTPClient } from "@x402-avm/core/client";
 import { registerExactAvmScheme } from "@x402-avm/avm/exact/client";
-import { toClientAvmSigner } from "@x402-avm/avm";
-import { resolveAccount } from "./mnemonic";
+import { resolveAccount, toSigner } from "./mnemonic";
 
 /** Pause between paid calls so settlement of one lands before the next is built. */
 const SETTLE_GAP_MS = 2_000;
@@ -227,6 +226,20 @@ async function runCall(http: x402HTTPClient, call: Call, payer: string): Promise
   const text = await paid.text();
   console.log(preview(text));
 
+  // On a refusal the body is empty and the reason rides in the payment-required
+  // header as base64 JSON. Surface it — otherwise a refusal is undebuggable.
+  if (paid.status === 402) {
+    const header = paid.headers.get("payment-required");
+    if (header) {
+      try {
+        const reason = JSON.parse(Buffer.from(header, "base64").toString())?.error;
+        if (reason) console.log(`  reason: ${reason}`);
+      } catch {
+        /* not decodable — the diagnosis below still runs */
+      }
+    }
+  }
+
   let txId = "";
   try {
     const settle: any = http.getPaymentSettleResponse((n) => paid.headers.get(n));
@@ -283,11 +296,10 @@ async function main() {
   let payer = "";
   if (mnemonic) {
     const account = await resolveAccount(mnemonic);
-    const { sk } = account;
     payer = account.addr;
     if (!DRY) {
       registerExactAvmScheme(core, {
-        signer: toClientAvmSigner(Buffer.from(sk).toString("base64")),
+        signer: await toSigner(account),
         algodConfig: { algodUrl },
       });
       console.log(`Paying from: ${payer}`);

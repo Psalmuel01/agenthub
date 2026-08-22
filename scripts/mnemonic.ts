@@ -1,5 +1,5 @@
 /**
- * Resolve a wallet mnemonic to an Algorand account, accepting both formats.
+ * Resolve a wallet mnemonic to a signer, accepting both Algorand phrase formats.
  *
  * TWO DIFFERENT STANDARDS share the word "mnemonic", and they are not
  * interchangeable:
@@ -9,48 +9,59 @@
  *              phrase; no derivation happens.
  *
  *   24 words — BIP-39, what Pera and Defly create for new wallets. The phrase
- *              is a *seed*; the key is derived from it. The phrase alone is
- *              not the key.
+ *              is a *seed*; the key is derived from it.
  *
  * A 24-word phrase is NOT a 25-word phrase with the checksum word removed, and
  * algosdk rejects it outright ("failed to decode mnemonic").
  *
- * THE DERIVATION IS ARC-52, NOT SLIP-0010. This matters and is easy to get
- * wrong. Most chains derive ed25519 keys with SLIP-0010; Algorand wallets do
- * not. They use BIP32-Ed25519 (Khovratovich-Law), standardised for Algorand as
- * ARC-52, which is a genuinely different algorithm — not merely a different
- * path. Deriving a Pera phrase with SLIP-0010 yields a valid-looking address
- * that the wallet has never heard of, at any path.
+ * THE DERIVATION IS ARC-52, NOT SLIP-0010. Most chains derive ed25519 keys with
+ * SLIP-0010; Algorand wallets do not. They use BIP32-Ed25519 (Khovratovich-Law)
+ * with Peikert's g=9 variant, standardised for Algorand as ARC-52 — a different
+ * algorithm, not merely a different path. Deriving a Pera phrase with SLIP-0010
+ * produces a valid-looking address the wallet has never heard of, at any path.
+ * Verified against a real Pera wallet: ARC-52 reproduces its address exactly,
+ * and 4,806 SLIP-0010 path/passphrase combinations do not.
  *
- * Verified against a real Pera-generated wallet: the same 24 words produce the
- * wallet's actual address at m/44'/283'/0'/0/0 with g=9, and no SLIP-0010
- * derivation reproduces it (4,806 path/passphrase combinations were tried).
- *
- * g=9 is Algorand-specific. The BIP32-Ed25519 paper's standard derivations use
- * g=32; Algorand wallets zero 9 bits instead, so g=32 also misses.
+ * SIGNING GOES THROUGH THE LIBRARY, DELIBERATELY. An ARC-52 key is a clamped
+ * scalar rather than a seed, so neither algosdk's signTxn nor the x402 helper
+ * toClientAvmSigner can sign with it — both assume a seed and silently derive a
+ * different address. Hand-rolling the ed25519 nonce is worse: an earlier
+ * attempt here produced signatures that verified locally against their own
+ * public key but were rejected on chain ("At least one signature didn't pass
+ * verification"). Local verification cannot catch that class of bug, so
+ * signAlgoTransaction from the Foundation's own implementation does the work,
+ * and correctness is confirmed against algod's simulate endpoint.
  */
 import algosdk from "algosdk";
 import { mnemonicToSeedSync, validateMnemonic } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english";
 
-/** Hardened-index offset: level values at or above this are hardened. */
-const HARDENED = 0x8000_0000;
-
 /**
- * Algorand's ARC-52 account path: m / 44' / 283' / account' / change / index.
- * 283 is Algorand's SLIP-0044 coin type. Only the first three are hardened.
+ * ARC-52 addresses a key by (context, account, index) rather than a free-form
+ * path; these correspond to m/44'/283'/<account>'/0/<index>. Overridable for
+ * wallets holding funds on a later account or address index.
  */
-const DEFAULT_PATH = "m/44'/283'/0'/0/0";
-
-/** Bits zeroed during child derivation. Algorand uses 9, not the paper's 32. */
-const ALGORAND_G = 9;
+const DEFAULT_ACCOUNT = Number(process.env.ALGO_ACCOUNT_INDEX ?? 0);
+const DEFAULT_KEY_INDEX = Number(process.env.ALGO_ADDRESS_INDEX ?? 0);
 
 export interface ResolvedAccount {
   addr: string;
-  /** 64-byte ed25519 secret key (seed || public key), as algosdk expects. */
-  sk: Uint8Array;
-  /** Which format the phrase turned out to be. */
   source: "algorand-25" | "bip39-24";
+  /** 25-word only: the 64-byte key algosdk signs with. */
+  sk?: Uint8Array;
+  /** 24-word only: the 96-byte ARC-52 root key, plus where the account sits. */
+  rootKey?: Uint8Array;
+  account?: number;
+  keyIndex?: number;
+}
+
+/** Minimal signer shape the x402 client requires. */
+export interface ClientSigner {
+  address: string;
+  signTransactions(
+    txns: Uint8Array[],
+    indexesToSign?: number[],
+  ): Promise<(Uint8Array | null)[]>;
 }
 
 /** Normalise whitespace/case so pasted phrases still work. */
@@ -58,59 +69,15 @@ function normalise(phrase: string): string {
   return phrase.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-/**
- * Parse "m/44'/283'/0'/0/0" into numeric levels, applying the hardened offset
- * to any segment marked with a trailing apostrophe.
- */
-function parsePath(path: string): number[] {
-  return path
-    .split("/")
-    .slice(1)
-    .filter(Boolean)
-    .map((segment) => {
-      const hardened = segment.endsWith("'") || segment.endsWith("h");
-      const value = parseInt(segment.replace(/['h]$/, ""), 10);
-      if (!Number.isInteger(value) || value < 0) {
-        throw new Error(`invalid derivation path segment '${segment}' in '${path}'`);
-      }
-      return (hardened ? value + HARDENED : value) >>> 0;
-    });
-}
-
-/**
- * Derive an Algorand keypair from a BIP-39 seed using ARC-52.
- *
- * The libraries involved are ESM-only and initialise asynchronously (libsodium
- * compiles a WASM module), so this is imported lazily and the whole function is
- * async. Callers that only handle 25-word phrases never pay that cost.
- */
-async function deriveArc52(
-  seed: Buffer,
-  path: string,
-): Promise<{ sk: Uint8Array; addr: string }> {
-  const bip32 = await import("@algorandfoundation/xhd-wallet-api/dist/bip32-ed25519.js");
-
-  // libsodium-wrappers-sumo must be >= 0.8: the 0.7.x ESM build imports a
-  // sibling file that ships in a different package, so xhd-wallet-api (pure
-  // ESM) fails to load with ERR_MODULE_NOT_FOUND. package.json pins 0.8.x.
-  const sodiumModule = await import("libsodium-wrappers-sumo");
-  const sodium: any = (sodiumModule as any).default ?? sodiumModule;
-  await sodium.ready;
-
-  let node: Uint8Array = bip32.fromSeed(seed);
-  for (const level of parsePath(path)) {
-    node = await bip32.deriveChildNodePrivate(node, level, ALGORAND_G);
-  }
-
-  // The derived scalar is already clamped, so the public key comes from a
-  // no-clamp scalar multiplication rather than the usual keypair helper.
-  const scalar = node.subarray(0, 32);
-  const publicKey: Uint8Array = sodium.crypto_scalarmult_ed25519_base_noclamp(scalar);
-
-  return {
-    sk: new Uint8Array(Buffer.concat([Buffer.from(scalar), Buffer.from(publicKey)])),
-    addr: algosdk.encodeAddress(new Uint8Array(publicKey)),
-  };
+/** Load the Foundation's ARC-52 implementation. ESM-only, so imported lazily. */
+async function loadXhd() {
+  const crypto: any = await import(
+    "@algorandfoundation/xhd-wallet-api/dist/x.hd.wallet.api.crypto.js"
+  );
+  const bip32: any = await import(
+    "@algorandfoundation/xhd-wallet-api/dist/bip32-ed25519.js"
+  );
+  return { crypto, bip32 };
 }
 
 /**
@@ -143,18 +110,95 @@ export async function resolveAccount(
       );
     }
 
-    const path = process.env.ALGO_DERIVATION_PATH || DEFAULT_PATH;
+    const { crypto, bip32 } = await loadXhd();
     const seed = Buffer.from(mnemonicToSeedSync(cleaned));
-    const { sk, addr } = await deriveArc52(seed, path);
+    const rootKey: Uint8Array = bip32.fromSeed(seed);
+
+    const api = new crypto.XHDWalletAPI();
+    const publicKey = await api.keyGen(
+      rootKey,
+      crypto.KeyContext.Address,
+      DEFAULT_ACCOUNT,
+      DEFAULT_KEY_INDEX,
+      crypto.BIP32DerivationType.Peikert,
+    );
+    const addr = algosdk.encodeAddress(new Uint8Array(publicKey));
 
     if (announce) {
-      console.log(`Derived from 24-word phrase (ARC-52, ${path}):`);
+      console.log(
+        `Derived from 24-word phrase (ARC-52, account ${DEFAULT_ACCOUNT}, index ${DEFAULT_KEY_INDEX}):`,
+      );
       console.log(`  ${addr}\n`);
     }
-    return { addr, sk, source: "bip39-24" };
+    return {
+      addr,
+      source: "bip39-24",
+      rootKey,
+      account: DEFAULT_ACCOUNT,
+      keyIndex: DEFAULT_KEY_INDEX,
+    };
   }
 
   throw new Error(
     `expected a 25-word Algorand mnemonic or a 24-word BIP-39 phrase, got ${words.length} words`,
   );
+}
+
+/**
+ * Build an x402 ClientAvmSigner for a resolved account.
+ *
+ * Both branches sign locally and return msgpack-encoded SignedTransactions; the
+ * 25-word path is algosdk's own signing, unchanged from before this file existed.
+ */
+export async function toSigner(account: ResolvedAccount): Promise<ClientSigner> {
+  if (account.source === "algorand-25") {
+    const sk = account.sk!;
+    return {
+      address: account.addr,
+      async signTransactions(txns, indexesToSign) {
+        const wanted = indexesToSign ?? txns.map((_, i) => i);
+        return txns.map((txn, i) =>
+          wanted.includes(i)
+            ? algosdk.decodeUnsignedTransaction(txn).signTxn(sk)
+            : null,
+        );
+      },
+    };
+  }
+
+  const { crypto } = await loadXhd();
+  const api = new crypto.XHDWalletAPI();
+  const { rootKey, account: acct, keyIndex } = account;
+
+  return {
+    address: account.addr,
+    async signTransactions(txns, indexesToSign) {
+      const wanted = indexesToSign ?? txns.map((_, i) => i);
+      const out: (Uint8Array | null)[] = [];
+
+      for (let i = 0; i < txns.length; i++) {
+        if (!wanted.includes(i)) {
+          out.push(null);
+          continue;
+        }
+        const txn = algosdk.decodeUnsignedTransaction(txns[i]);
+        // bytesToSign() already carries the "TX" domain prefix — adding another
+        // signs "TXTX..." and the network rejects the signature.
+        const sig = await api.signAlgoTransaction(
+          rootKey!,
+          crypto.KeyContext.Address,
+          acct!,
+          keyIndex!,
+          txn.bytesToSign(),
+          crypto.BIP32DerivationType.Peikert,
+        );
+        out.push(
+          algosdk.encodeMsgpack(
+            new algosdk.SignedTransaction({ txn, sig: new Uint8Array(sig) }),
+          ),
+        );
+      }
+      return out;
+    },
+  };
 }
