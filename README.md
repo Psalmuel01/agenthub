@@ -69,6 +69,9 @@ const risk = await hub.walletRisk(address);
 if (risk.riskScore > 60) throw new Error("counterparty too risky");
 ```
 
+`mnemonic` must be a 25-word native Algorand mnemonic — the 24-word phrase a Pera or
+Defly wallet shows you is a different standard (BIP-39) and will fail to decode.
+
 The package also ships ready-made tool definitions for the Anthropic and OpenAI SDKs —
 see [`packages/agenthub-algo`](packages/agenthub-algo).
 
