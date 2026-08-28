@@ -191,9 +191,10 @@ export function renderPlayground(opts: {
       </div>
       <button id="stop" class="secondary hide">Stop</button>
     </div>
+    <div id="run-status" class="small hide" style="margin:.7rem 0 0; color: var(--accent); font-weight: 600"></div>
     <p class="tiny muted" style="margin:.7rem 0 0">
-      Every paid call needs its own signature, so a long run means one wallet prompt
-      per call. Runs stop on the first refusal.
+      Payments are signed in batches, so a run asks for one wallet approval per batch
+      rather than one per call. Runs stop on the first refusal.
     </p>
   </div>
 

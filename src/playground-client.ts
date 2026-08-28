@@ -61,6 +61,82 @@ let cancelled = false;   // user pressed Stop
  * x402 payment is one atomic group, then walk the returned signatures back into
  * their original positions in order.
  */
+/**
+ * Collects signing requests so several payments share one wallet prompt.
+ *
+ * Null when batching is off: the signer signs immediately, one prompt per call.
+ * While a batch is open this holds the parked requests, each waiting on its own
+ * promise, until flushBatch sends them to Pera together.
+ */
+let batch = null;
+
+/** Open a batch. Every signTransactions call now parks instead of prompting. */
+function beginBatch() {
+  batch = { pending: [] };
+}
+
+/**
+ * Sign every parked request in one wallet prompt and release the waiters.
+ *
+ * Pera takes an array of groups and returns the signed transactions of all of
+ * them flattened together, in request order, with the unsigned ones omitted.
+ * Nothing in the response says where one group ends and the next begins, so we
+ * walk it using the count each request expected — the same reconstruction the
+ * single-payment path does, extended across groups.
+ */
+async function flushBatch() {
+  const open = batch;
+  batch = null;
+  if (!open || !open.pending.length) return;
+
+  try {
+    const groups = open.pending.map((p) => p.group);
+    const signed = await pera.signTransaction(groups, account);
+
+    let next = 0;
+    for (const req of open.pending) {
+      const out = req.txns.map(() => null);
+      for (let i = 0; i < req.txns.length; i++) {
+        if (req.wanted.includes(i)) out[i] = signed[next++];
+      }
+      req.resolve(out);
+    }
+  } catch (e) {
+    // One rejected prompt fails every payment in the batch — they were a single
+    // approval. Reject them all so no caller waits on a promise that never
+    // settles.
+    for (const req of open.pending) req.reject(e);
+  }
+}
+
+/** Abandon a batch without signing, e.g. when a run is cancelled before flush. */
+function cancelBatch(reason) {
+  const open = batch;
+  batch = null;
+  if (open) for (const req of open.pending) req.reject(new Error(reason || "batch cancelled"));
+}
+
+/**
+ * Adapt a Pera wallet to the signer interface the x402 client expects.
+ *
+ * The two disagree in three ways, and getting any of them wrong produces
+ * signatures the network rejects rather than a clean error:
+ *
+ *   x402 gives us msgpack-encoded unsigned transactions and asks for an array
+ *   of the SAME LENGTH back, with null at every index it did not ask us to
+ *   sign. Pera wants decoded algosdk.Transaction objects, grouped, and returns
+ *   ONLY the signed ones — a shorter array with no index information.
+ *
+ * So: decode, mark the ones to sign via a signers list (an empty array tells
+ * Pera to skip a transaction rather than sign it), send as a group because an
+ * x402 payment is one atomic group, then walk the returned signatures back into
+ * their original positions in order.
+ *
+ * When a batch is open the group is parked rather than sent, so a whole run
+ * costs one approval instead of one per call. x402 builds each payment with a
+ * separate signer call and offers no batch API of its own, so this is the only
+ * layer where several payments can be collected before the wallet is asked.
+ */
 function toWalletSigner(address) {
   return {
     address,
@@ -70,6 +146,12 @@ function toWalletSigner(address) {
         txn: algosdk.decodeUnsignedTransaction(bytes),
         signers: wanted.includes(i) ? [address] : [],
       }));
+
+      if (batch) {
+        return new Promise((resolve, reject) => {
+          batch.pending.push({ group, txns, wanted, resolve, reject });
+        });
+      }
 
       const signed = await pera.signTransaction([group], address);
 
@@ -348,6 +430,162 @@ async function callEndpoint(http, entry, bodyOverride) {
            charged: true, note: "FAILED AFTER PAYMENT — money moved" };
 }
 
+/**
+ * Prepare a paid call up to the point money would move.
+ *
+ * Splitting the quote and the signature out of the send is what makes batching
+ * possible: every call in a run can be prepared first, so all their signatures
+ * are parked and can be approved together, and only then are the requests sent.
+ * Returns null for a free route, which needs no preparation.
+ */
+async function prepareCall(http, entry, bodyOverride) {
+  const init = { method: entry.method };
+  if (entry.method === "POST") {
+    init.headers = { "Content-Type": "application/json" };
+    init.body = bodyOverride ?? JSON.stringify(entry.sampleBody ?? {});
+  }
+
+  const first = await fetch(entry.path, init);
+  if (first.status !== 402) return { entry, init, first, headers: null };
+
+  const paymentRequired = http.getPaymentRequiredResponse((n) => first.headers.get(n));
+  // This awaits the signer, which parks inside an open batch and resolves when
+  // the batch is flushed. So the promise is deliberately not awaited here by
+  // the batching caller — see runBatched.
+  const signing = http.createPaymentPayload(paymentRequired).then(
+    (payload) => http.encodePaymentSignatureHeader(payload),
+  );
+  return { entry, init, first: null, signing };
+}
+
+/** Send a prepared call and interpret the outcome. Mirrors callEndpoint's tail. */
+async function sendPrepared(http, prep) {
+  const { entry, init } = prep;
+  const started = Date.now();
+
+  if (prep.first) {
+    const text = await prep.first.text();
+    return {
+      name: entry.name, status: prep.first.status, ms: Date.now() - started,
+      ok: prep.first.ok, body: text, charged: false,
+      note: prep.first.ok ? (isPaid(entry) ? "unprotected?" : "free, no payment") : "error",
+    };
+  }
+
+  const headers = await prep.signing;
+  const paid = await fetch(entry.path, {
+    ...init,
+    headers: { ...(init.headers || {}), ...headers },
+  });
+  const ms = Date.now() - started;
+  const text = await paid.text();
+
+  let txId = "";
+  try {
+    const settle = http.getPaymentSettleResponse((n) => paid.headers.get(n));
+    txId = settle?.txHash || settle?.transaction || settle?.txId || "";
+  } catch (e) { /* no settle header */ }
+
+  if (paid.ok) {
+    return { name: entry.name, status: 200, ms, ok: true, body: text, txId,
+             charged: true, note: txId ? "paid" : "paid (no txid)" };
+  }
+  if (paid.status === 402) {
+    let reason = "";
+    const header = paid.headers.get("payment-required");
+    if (header) {
+      try { reason = JSON.parse(atob(header))?.error || ""; } catch (e) { /* undecodable */ }
+    }
+    return { name: entry.name, status: 402, ms, ok: false, body: text, charged: false,
+             note: "payment refused — not charged", reason };
+  }
+  return { name: entry.name, status: paid.status, ms, ok: false, body: text,
+           charged: true, note: "FAILED AFTER PAYMENT — money moved" };
+}
+
+/**
+ * How many payments to approve in one prompt.
+ *
+ * Not arbitrary: a signed Algorand transaction is only valid for a bounded
+ * window, and the server gives each quote 300 seconds. Signing a long run up
+ * front would leave the tail expiring before it is sent, so batches stay small
+ * enough that every payment in one is still spendable when its turn comes.
+ */
+const BATCH_SIZE = 8;
+
+/**
+ * Run a list of endpoints, approving each batch of payments in one prompt.
+ *
+ * The whole point of preparing before sending: all the signatures in a chunk
+ * are collected while the wallet is open once, then the requests go out one at
+ * a time. Sending stays sequential because settlement of one payment has to
+ * land before the next is submitted from the same account.
+ *
+ * onResult reports each outcome as it happens. Returns when the list is done
+ * or something stops it.
+ */
+async function runBatched(http, entries, onResult) {
+  let stopped = false;
+
+  for (let i = 0; i < entries.length && !stopped; i += BATCH_SIZE) {
+    if (cancelled) break;
+    const chunk = entries.slice(i, i + BATCH_SIZE);
+    const paidInChunk = chunk.filter(isPaid).length;
+
+    // Prepare everything first so all the signatures park together.
+    beginBatch();
+    let preps;
+    try {
+      preps = await Promise.all(chunk.map((entry) => {
+        const override = document.querySelector("[data-body='" + entry.name + "']")?.value;
+        return prepareCall(http, entry, override);
+      }));
+    } catch (e) {
+      cancelBatch("preparation failed");
+      onResult({ name: chunk[0].name, status: "ERR", ms: 0, ok: false, charged: false,
+                 body: "", note: friendlyError(e) });
+      break;
+    }
+
+    // One prompt covers every paid call in this chunk.
+    if (paidInChunk > 0) {
+      setStatus("Approve " + paidInChunk + " payment" + (paidInChunk > 1 ? "s" : "") +
+                " in your wallet — one prompt for this batch.");
+      await flushBatch();
+    } else {
+      cancelBatch("no paid calls in batch");
+    }
+
+    for (const prep of preps) {
+      if (cancelled) { stopped = true; break; }
+      if (prep !== preps[0] && isPaid(prep.entry)) await sleep(2000);
+
+      let result;
+      try {
+        result = await sendPrepared(http, prep);
+      } catch (e) {
+        result = { name: prep.entry.name, status: "ERR", ms: 0, ok: false,
+                   charged: false, body: "", note: friendlyError(e) };
+      }
+      onResult(result);
+      // A refusal means the rest of this run would be refused too.
+      if (!result.ok && (result.status === 402 || result.status === "ERR")) {
+        stopped = true;
+        break;
+      }
+    }
+    setStatus("");
+  }
+}
+
+/** Show what the runner is waiting on, so a wallet prompt is never a surprise. */
+function setStatus(text) {
+  const el = $("run-status");
+  if (!el) return;
+  el.textContent = text || "";
+  el.classList.toggle("hide", !text);
+}
+
 // ---------------------------------------------------------------------------
 // Run modes
 // ---------------------------------------------------------------------------
@@ -366,7 +604,13 @@ function setRunning(on) {
   for (const b of document.querySelectorAll("[data-run]")) b.disabled = on;
 }
 
-$("stop").onclick = () => { cancelled = true; $("stop").disabled = true; };
+$("stop").onclick = () => {
+  cancelled = true;
+  $("stop").disabled = true;
+  // An open batch is waiting on promises nothing will resolve once we stop.
+  cancelBatch("run stopped");
+  setStatus("");
+};
 
 function logLine(result) {
   $("log-panel").classList.remove("hide");
@@ -463,33 +707,21 @@ async function runAll() {
   let ran = 0, spent = 0, failed = 0;
   try {
     const http = makeHttpClient();
-    for (const entry of plan) {
-      if (cancelled) break;
-      // Back-to-back paid calls can outrun settlement, and the server then
-      // answers 402 again even though the wallet is fine.
-      if (ran > 0 && isPaid(entry)) await sleep(2000);
-
-      let result;
-      try {
-        const override = document.querySelector("[data-body='" + entry.name + "']")?.value;
-        result = await callEndpoint(http, entry, override);
-      } catch (e) {
-        result = { name: entry.name, status: "ERR", ms: 0, ok: false,
-                   charged: false, body: "", note: friendlyError(e) };
-      }
+    await runBatched(http, plan, (result) => {
       ran++;
-      if (result.ok && isPaid(entry)) spent += entry.priceUsd;
+      const entry = catalog.find((e) => e.name === result.name);
+      if (result.ok && entry && isPaid(entry)) spent += entry.priceUsd;
       if (!result.ok) failed++;
-      showOutput(entry.name, result);
+      showOutput(result.name, result);
       logLine(result);
-      if (!result.ok && result.status === 402) break;   // refused: the rest would be too
-    }
+    });
   } finally {
     const parts = [ran + " run", "$" + spent.toFixed(2) + " spent"];
     if (failed) parts.push(failed + " failed");
     if (skipped.length) parts.push(skipped.length + " skipped for funds");
     if (cancelled) parts.push("stopped early");
     $("log-summary").textContent = parts.join(" · ");
+    setStatus("");
     setRunning(false);
     await refreshBalances();
   }
@@ -521,8 +753,9 @@ async function runExhaust() {
     return;
   }
   if (!confirm(
-    "This will spend up to $" + budget.toFixed(2) + " USDC, one wallet prompt per call, " +
-    "until the balance cannot cover another endpoint.\n\nContinue?"
+    "This will spend up to $" + budget.toFixed(2) + " USDC until the balance cannot cover " +
+    "another endpoint.\n\nPayments are approved in batches of " + BATCH_SIZE +
+    ", so expect one wallet prompt per batch.\n\nContinue?"
   )) return;
 
   setRunning(true);
@@ -531,37 +764,41 @@ async function runExhaust() {
   let calls = 0, spent = 0;
   try {
     const http = makeHttpClient();
+
+    // Choose a batch worth of endpoints up front so their payments can share one
+    // prompt, then run it. Selection stays random with replacement; it just
+    // happens a chunk at a time instead of one call at a time.
     while (!cancelled) {
-      const options = affordable(budget);
-      if (!options.length) break;
-
-      const entry = options[Math.floor(Math.random() * options.length)];
-      if (calls > 0) await sleep(2000);
-
-      let result;
-      try {
-        const override = document.querySelector("[data-body='" + entry.name + "']")?.value;
-        result = await callEndpoint(http, entry, override);
-      } catch (e) {
-        result = { name: entry.name, status: "ERR", ms: 0, ok: false,
-                   charged: false, body: "", note: friendlyError(e) };
+      const chunk = [];
+      let planning = budget;
+      while (chunk.length < BATCH_SIZE) {
+        const options = affordable(planning);
+        if (!options.length) break;
+        const pick = options[Math.floor(Math.random() * options.length)];
+        chunk.push(pick);
+        planning -= pick.priceUsd;
       }
-      calls++;
-      showOutput(entry.name, result);
-      logLine(result);
+      if (!chunk.length) break;
 
-      // Only a settled call actually moved money. Anything else means the next
-      // attempt would almost certainly fail the same way, so stop rather than
-      // spin — and never decrement the budget for a payment that never happened.
-      if (!result.ok) break;
-      budget -= entry.priceUsd;
-      spent += entry.priceUsd;
+      let refused = false;
+      await runBatched(http, chunk, (result) => {
+        calls++;
+        const entry = catalog.find((e) => e.name === result.name);
+        if (result.ok && entry) { budget -= entry.priceUsd; spent += entry.priceUsd; }
+        else refused = true;
+        showOutput(result.name, result);
+        logLine(result);
+      });
+      // runBatched stops a chunk on the first failure; stop the whole run too,
+      // rather than opening another prompt that would fail the same way.
+      if (refused) break;
     }
   } finally {
     const parts = [calls + " calls", "$" + spent.toFixed(2) + " spent"];
     if (cancelled) parts.push("stopped early");
     else if (round6(budget) < round6(cheapestPrice())) parts.push("budget exhausted");
     $("log-summary").textContent = parts.join(" · ");
+    setStatus("");
     setRunning(false);
     await refreshBalances();
   }
