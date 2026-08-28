@@ -81,6 +81,11 @@ const STYLES = `
   button:disabled { opacity: .4; cursor: not-allowed; }
   button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
   button.small { font-size: .8rem; padding: .35rem .7rem; }
+  select {
+    font: inherit; font-size: .8rem; background: var(--bg); color: var(--fg);
+    border: 1px solid var(--line); border-radius: 7px; padding: .35rem .5rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; max-width: 100%;
+  }
   input[type=text], input[type=number], textarea {
     font: inherit; font-size: .85rem; background: var(--bg); color: var(--fg);
     border: 1px solid var(--line); border-radius: 7px; padding: .45rem .6rem; width: 100%;
@@ -168,6 +173,10 @@ export function renderPlayground(opts: {
       <div class="grow">
         <div id="wallet-status" class="small muted">Not connected.</div>
         <div id="wallet-addr" class="mono tiny muted hide"></div>
+        <div id="account-picker" class="hide" style="margin-top:.5rem">
+          <label class="tiny muted" for="account-select">Paying from</label>
+          <select id="account-select" class="mono"></select>
+        </div>
       </div>
       <div class="row">
         <button id="connect">Connect wallet</button>

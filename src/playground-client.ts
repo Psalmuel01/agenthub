@@ -40,10 +40,21 @@ const $ = (id) => document.getElementById(id);
 // ---------------------------------------------------------------------------
 
 const pera = new PeraWalletConnect();
-let account = null;      // connected address
-let balances = null;     // { algo, usdc, optedIn }
+let accounts = [];       // every address the wallet authorised
+let account = null;      // the one currently paying
+let balances = null;     // { algo, usdc, optedIn } for the paying account
 let running = false;     // a run is in progress
 let cancelled = false;   // user pressed Stop
+
+/**
+ * Results keyed by endpoint name, so they survive a re-render.
+ *
+ * The endpoint list is rebuilt with innerHTML whenever balances change, which
+ * happens right after every run — so a result written straight into the DOM was
+ * destroyed a moment later. Keeping results here and re-rendering them from
+ * state is what makes them stay on screen.
+ */
+const results = new Map();
 
 /**
  * Adapt a Pera wallet to the signer interface the x402 client expects.
@@ -72,7 +83,7 @@ let batch = null;
 
 /** Open a batch. Every signTransactions call now parks instead of prompting. */
 function beginBatch() {
-  batch = { pending: [] };
+  batch = { pending: [], address: null };
 }
 
 /**
@@ -91,7 +102,11 @@ async function flushBatch() {
 
   try {
     const groups = open.pending.map((p) => p.group);
-    const signed = await pera.signTransaction(groups, account);
+    // Sign as whoever the parked transactions were built for, not whoever is
+    // selected now. These are the same today because the account picker is
+    // disabled mid-run, but asking Pera to sign one address's transactions as
+    // another fails in a way that looks like a wallet bug rather than ours.
+    const signed = await pera.signTransaction(groups, open.address ?? account);
 
     let next = 0;
     for (const req of open.pending) {
@@ -148,6 +163,7 @@ function toWalletSigner(address) {
       }));
 
       if (batch) {
+        batch.address = batch.address ?? address;
         return new Promise((resolve, reject) => {
           batch.pending.push({ group, txns, wanted, resolve, reject });
         });
@@ -189,6 +205,44 @@ async function readBalances(addr) {
   }
 }
 
+/**
+ * Offer every authorised account, so payments can come from any of them.
+ *
+ * Pera can authorise several addresses at once and returns them all, but only
+ * one can be the payer at a time — the x402 signer is built around a single
+ * address. Switching rebuilds that signer, so the choice takes effect on the
+ * next call rather than retroactively.
+ *
+ * Hidden when there is nothing to choose between; a one-item dropdown is just
+ * noise next to the address already on screen.
+ */
+function renderAccountPicker() {
+  const picker = $("account-picker");
+  const select = $("account-select");
+  if (!picker || !select) return;
+
+  if (accounts.length < 2) {
+    picker.classList.add("hide");
+    return;
+  }
+  picker.classList.remove("hide");
+
+  select.innerHTML = accounts.map((addr) =>
+    "<option value='" + escapeHtml(addr) + "'" + (addr === account ? " selected" : "") + ">" +
+    escapeHtml(addr.slice(0, 8) + "…" + addr.slice(-6)) + "</option>",
+  ).join("");
+  select.disabled = running;
+
+  select.onchange = async () => {
+    if (running) return;              // never move the payer mid-run
+    account = select.value;
+    // Results belong to the account that paid for them, so clear rather than
+    // leave another address's output sitting under the endpoints.
+    results.clear();
+    await refreshBalances();
+  };
+}
+
 function renderWallet() {
   const connected = Boolean(account);
   $("connect").classList.toggle("hide", connected);
@@ -206,6 +260,7 @@ function renderWallet() {
 
   $("wallet-status").innerHTML = "<strong>Connected</strong>";
   $("wallet-addr").textContent = account;
+  renderAccountPicker();
 
   if (!balances) {
     $("wallet-stats").innerHTML = "<div class='muted'>Could not read balances.</div>";
@@ -251,8 +306,11 @@ async function refreshBalances() {
 
 $("connect").onclick = async () => {
   try {
-    const accounts = await pera.connect();
-    account = accounts[0];
+    const authorised = await pera.connect();
+    accounts = authorised;
+    // Keep the current account if the wallet re-authorised it, so reconnecting
+    // does not silently move payments to a different address.
+    account = accounts.includes(account) ? account : accounts[0];
     pera.connector?.on("disconnect", doDisconnect);
     await refreshBalances();
   } catch (e) {
@@ -264,8 +322,10 @@ $("connect").onclick = async () => {
 };
 
 function doDisconnect() {
+  accounts = [];
   account = null;
   balances = null;
+  results.clear();
   renderWallet();
 }
 
@@ -317,6 +377,13 @@ function renderEndpoints() {
   if (!catalog.length) return;
   const canPay = Boolean(account);
 
+  // A rebuild throws away anything typed into the request bodies, so carry the
+  // current text over — otherwise editing a body and running it resets the box.
+  const edited = new Map();
+  for (const ta of document.querySelectorAll("[data-body]")) {
+    edited.set(ta.getAttribute("data-body"), ta.value);
+  }
+
   $("endpoints").innerHTML = catalog.map((e) => {
     const affordableNow =
       !isPaid(e) || (balances && round6(balances.usdc) >= round6(e.priceUsd));
@@ -333,7 +400,8 @@ function renderEndpoints() {
       "<div class='ep-desc'>" + escapeHtml(truncate(e.description, 220)) + "</div>" +
       (e.sampleBody !== undefined
         ? "<div class='ep-body'><textarea data-body='" + escapeHtml(e.name) + "' spellcheck='false'>" +
-          escapeHtml(JSON.stringify(e.sampleBody, null, 2)) + "</textarea></div>"
+          escapeHtml(edited.has(e.name) ? edited.get(e.name) : JSON.stringify(e.sampleBody, null, 2)) +
+          "</textarea></div>"
         : "") +
       "<div class='row'>" +
         "<button class='small' data-run='" + escapeHtml(e.name) + "' " + disabled + ">Run" +
@@ -349,6 +417,10 @@ function renderEndpoints() {
   for (const btn of document.querySelectorAll("[data-run]")) {
     btn.onclick = () => runOne(btn.getAttribute("data-run"));
   }
+
+  // The rebuild above wiped every result off the page. Put them back, or a
+  // result vanishes the moment the balance refresh that follows a run lands.
+  for (const name of results.keys()) paintOutput(name);
 }
 
 const truncate = (s, n) => (String(s).length > n ? String(s).slice(0, n) + "…" : String(s));
@@ -638,7 +710,16 @@ $("clear-log").onclick = () => {
   $("log-panel").classList.add("hide");
 };
 
+/** Record a result and paint it. Stored so a re-render cannot lose it. */
 function showOutput(name, result) {
+  results.set(name, result);
+  paintOutput(name);
+}
+
+/** Paint whatever result is stored for an endpoint, if its card is on screen. */
+function paintOutput(name) {
+  const result = results.get(name);
+  if (!result) return;
   const el = document.querySelector("[data-out='" + name + "']");
   if (!el) return;
   el.classList.remove("hide");
@@ -815,9 +896,10 @@ $("run-exhaust").onclick = runExhaust;
 
 // Pera keeps sessions across reloads; restore one rather than making the user
 // reconnect on every page load.
-pera.reconnectSession().then((accounts) => {
-  if (accounts && accounts.length) {
-    account = accounts[0];
+pera.reconnectSession().then((restored) => {
+  if (restored && restored.length) {
+    accounts = restored;
+    account = restored[0];
     pera.connector?.on("disconnect", doDisconnect);
     return refreshBalances();
   }
