@@ -10,6 +10,7 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "test-client": "ts-node-dev --transpile-only scripts/test-client.ts",
     "run-all": "ts-node-dev --transpile-only scripts/run-all.ts",
+    "run-exhaust": "ts-node-dev --transpile-only scripts/run-all.ts --exhaust",
     "optin-usdc": "ts-node-dev --transpile-only scripts/optin-usdc.ts"
   },
   "dependencies": {

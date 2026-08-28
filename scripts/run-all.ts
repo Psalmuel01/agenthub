@@ -11,6 +11,14 @@
  *   npm run run-all -- --all         # attempt every endpoint regardless of balance
  *   npm run run-all -- --only=asset-risk,portfolio
  *
+ *   npm run run-exhaust                        # spend the wallet down
+ *   npm run run-exhaust -- --max-spend=0.10    # ...but stop after $0.10
+ *
+ * EXHAUST MODE picks a random affordable endpoint before every call, with
+ * replacement, and keeps paying until the remaining balance cannot cover even
+ * the cheapest route. It is a soak test for the paid path: the wallet ends
+ * empty by design. --max-spend bounds it, and a balance over $5 requires --yes.
+ *
  * COSTS REAL USDC on mainnet. The full paid pass spends ~$0.32 of the paying
  * wallet's balance. Use --dry first when you only want to confirm the routes
  * are up and the quotes are right.
@@ -37,7 +45,13 @@ const SETTLE_GAP_MS = 2_000;
 const DRY = process.argv.includes("--dry");
 /** Skip the budget preflight and attempt every selected endpoint. */
 const IGNORE_BUDGET = process.argv.includes("--all");
+/** Keep paying for random endpoints until the balance cannot cover any. */
+const EXHAUST = process.argv.includes("--exhaust");
+/** Proceed with --exhaust on a wallet holding more than BIG_BALANCE. */
+const CONFIRMED = process.argv.includes("--yes");
 const onlyArg = process.argv.find((a) => a.startsWith("--only="));
+const maxSpendArg = process.argv.find((a) => a.startsWith("--max-spend="));
+const MAX_SPEND = maxSpendArg ? Number(maxSpendArg.slice("--max-spend=".length)) : null;
 const ONLY = onlyArg ? onlyArg.slice("--only=".length).split(",").map((s) => s.trim()) : null;
 
 const baseUrl = (process.env.AGENTHUB_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
@@ -49,6 +63,14 @@ const baseUrl = (process.env.AGENTHUB_BASE_URL || "http://localhost:3000").repla
  * microALGO. This is a floor for warning, not an exact cost.
  */
 const MIN_ALGO = 0.05;
+
+/**
+ * A balance above this makes --exhaust ask for --yes first.
+ *
+ * Exhaust is meant for the few dimes left in a test wallet. Pointed at a funded
+ * one it would spend the lot, so past this line the intent has to be explicit.
+ */
+const BIG_BALANCE = 5;
 
 const indexerUrl = (process.env.INDEXER_URL || "https://mainnet-idx.algonode.cloud").replace(/\/$/, "");
 
@@ -219,6 +241,84 @@ function planWithinBudget(calls: Call[], usdc: number): { run: Call[]; skip: Cal
   };
 }
 
+/**
+ * Spend the wallet down by paying for randomly chosen endpoints.
+ *
+ * Each iteration picks uniformly at random from the endpoints the *remaining*
+ * budget can still afford — with replacement, so the same route can come up
+ * twice running. As funds dwindle the affordable set narrows on its own until
+ * nothing fits and the loop ends.
+ *
+ * The budget is tracked locally from advertised prices rather than re-read from
+ * the indexer each pass: settlement lags the response by a few seconds, so a
+ * fresh read would still show the pre-payment balance and the loop would
+ * overshoot. Local accounting is exact here because every price is known up
+ * front. Free routes are excluded — they cost nothing, so they can never
+ * exhaust anything and would loop forever.
+ */
+async function runExhaust(
+  http: x402HTTPClient,
+  calls: Call[],
+  payer: string,
+  startingBudget: number,
+): Promise<Outcome[]> {
+  const paid = calls.filter((c) => c.price > 0);
+  const cheapest = Math.min(...paid.map((c) => c.price));
+  const results: Outcome[] = [];
+  let budget = startingBudget;
+  let spent = 0;
+
+  while (true) {
+    const affordable = paid.filter((c) => Math.round(budget * 1e6) >= Math.round(c.price * 1e6));
+    if (affordable.length === 0) {
+      // `budget` starts capped at --max-spend when one is set, so this single
+      // check ends the loop for both reasons. Checking spend after paying would
+      // let the last call cross the cap by up to its own price.
+      console.log(
+        MAX_SPEND !== null
+          ? `\nReached --max-spend=${MAX_SPEND}: spent $${spent.toFixed(2)}, ` +
+            `$${budget.toFixed(6)} of the cap left (cheapest is $${cheapest.toFixed(2)}).`
+          : `\nBudget exhausted: $${budget.toFixed(6)} left, ` +
+            `cheapest endpoint costs $${cheapest.toFixed(2)}.`,
+      );
+      break;
+    }
+
+    const call = affordable[Math.floor(Math.random() * affordable.length)];
+    console.log(
+      `\n[call ${results.length + 1}] budget $${budget.toFixed(6)} — ` +
+        `${affordable.length} affordable, picked ${call.name} ($${call.price.toFixed(2)})`,
+    );
+
+    if (results.length > 0) await new Promise((r) => setTimeout(r, SETTLE_GAP_MS));
+
+    let outcome: Outcome;
+    try {
+      outcome = await runCall(http, call, payer);
+    } catch (err: any) {
+      console.log(`  error: ${err?.message ?? err}`);
+      outcome = { name: call.name, status: "ERR", ms: 0, note: String(err?.message ?? err).slice(0, 60) };
+    }
+    results.push(outcome);
+
+    // Only a 200 actually moved money. A refusal (402) charged nothing, and it
+    // means the next attempt will almost certainly be refused too — settlement
+    // lag or an empty wallet — so stop rather than spin on a dead loop.
+    if (outcome.status === 200) {
+      budget -= call.price;
+      spent += call.price;
+    } else {
+      console.log("\nStopping: that call did not settle, so the balance is unchanged.");
+      console.log("Nothing further would succeed this pass — see the diagnosis above.");
+      break;
+    }
+
+  }
+
+  console.log(`\nSpent $${spent.toFixed(2)} USDC across ${results.length} calls.`);
+  return results;
+}
+
 function preview(text: string, max = 220): string {
   const oneLine = text.replace(/\s+/g, " ").trim();
   return oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine;
@@ -357,130 +457,15 @@ async function runCall(http: x402HTTPClient, call: Call, payer: string): Promise
   return { name: call.name, status: paid.status, ms, note };
 }
 
-async function main() {
-  const mnemonic = process.env.AVM_CLIENT_MNEMONIC;
-  if (!DRY && !mnemonic) {
-    throw new Error("AVM_CLIENT_MNEMONIC is required for a paid run (use --dry to skip payment).");
-  }
-
-  const requested = ONLY ? CALLS.filter((c) => ONLY.includes(c.name)) : CALLS;
-  if (requested.length === 0) {
-    throw new Error(`--only matched no endpoints. Known: ${CALLS.map((c) => c.name).join(", ")}`);
-  }
-
-  const algodUrl = process.env.ALGOD_URL || "https://mainnet-api.algonode.cloud";
-
-  console.log(`Base URL   : ${baseUrl}`);
-  console.log(`Algod      : ${algodUrl}`);
-
-  // A dry run only decodes 402 quotes, so it needs no signer and no scheme.
-  const core = new x402Client();
-  let payer = "";
-  if (mnemonic) {
-    const account = await resolveAccount(mnemonic);
-    payer = account.addr;
-    if (!DRY) {
-      registerExactAvmScheme(core, {
-        signer: await toSigner(account),
-        algodConfig: { algodUrl },
-      });
-      console.log(`Paying from: ${payer}`);
-    }
-  }
-
-  // Decide what this wallet can actually pay for before spending anything.
-  let selected = requested;
-  let skipped: Call[] = [];
-  const fullCost = requested.reduce((sum, c) => sum + c.price, 0);
-
-  if (DRY) {
-    console.log(`Endpoints  : ${requested.length}`);
-    console.log("Mode       : DRY RUN — quotes only, no payment");
-  } else {
-    const balances = await readBalances(payer);
-
-    if (!balances) {
-      console.log("Balance    : indexer unreachable — skipping the budget check");
-    } else if (!balances.exists) {
-      throw new Error(
-        `${payer} does not exist on chain — it has never been funded.\n` +
-          "If you just switched to a 24-word phrase, confirm this address matches your wallet:\n" +
-          "an unfunded account and a wrong derivation path look identical from here.",
-      );
-    } else {
-      const usdc = balances.usdc;
-      console.log(`ALGO       : ${balances.algo.toFixed(6)}${balances.algo < MIN_ALGO ? "  <- low, may not cover fees" : ""}`);
-      console.log(
-        usdc === null
-          ? "USDC       : not opted in — run: npm run optin-usdc"
-          : `USDC       : ${usdc.toFixed(6)}`,
-      );
-
-      if (usdc === null) {
-        throw new Error(
-          `${payer} is not opted in to USDC (ASA ${USDC_ASA}), so no paid endpoint can settle.\n` +
-            "Run: npm run optin-usdc   (or: npm run run-all -- --dry for a free pass)",
-        );
-      }
-
-      if (!IGNORE_BUDGET) {
-        const plan = planWithinBudget(requested, usdc);
-        selected = plan.run;
-        skipped = plan.skip;
-      }
-    }
-  }
-
-  if (!DRY) {
-    const spend = selected.reduce((sum, c) => sum + c.price, 0);
-    if (skipped.length > 0) {
-      const paidCount = selected.filter((c) => c.price > 0).length;
-      console.log(
-        `Plan       : ${selected.length} of ${requested.length} endpoints fit the budget ` +
-          `(${paidCount} paid, ~$${spend.toFixed(2)})`,
-      );
-      console.log(`  skipping : ${skipped.map((c) => c.name).join(", ")}`);
-      console.log(
-        `             short by ~$${(fullCost - spend).toFixed(2)} — top up ${payer.slice(0, 8)}… ` +
-          "with USDC to run everything",
-      );
-    } else {
-      console.log(`Endpoints  : ${selected.length}`);
-      console.log(`Mode       : PAID — will spend ~$${spend.toFixed(2)} USDC`);
-    }
-  }
-
-  if (selected.length === 0) {
-    console.log("\nNothing to run: the balance does not cover any paid endpoint.");
-    console.log(`Top up ${payer} with USDC (ASA ${USDC_ASA}), or use --dry for a free pass.`);
-    return;
-  }
-
-  // relationship needs two distinct addresses; the payer is the natural
-  // counterparty since it has settled against the receiver many times.
-  const counterparty = payer && payer !== RECEIVER ? payer : FALLBACK_COUNTERPARTY;
-  for (const call of selected) {
-    if (call.name === "relationship") call.path = `/api/relationship?a=${RECEIVER}&b=${counterparty}`;
-  }
-
-  const http = new x402HTTPClient(core);
-
-  const results: Outcome[] = [];
-  for (const [i, call] of selected.entries()) {
-    // Back-to-back paid calls from one wallet can outrun settlement: the next
-    // payment is built before the facilitator has confirmed the previous one,
-    // and the server answers 402 again. A short gap keeps a full sweep clean.
-    // Nothing is charged when this happens, but it looks like a failure.
-    if (!DRY && i > 0) await new Promise((r) => setTimeout(r, SETTLE_GAP_MS));
-
-    try {
-      results.push(await runCall(http, call, payer));
-    } catch (err: any) {
-      console.log(`  error: ${err?.message ?? err}`);
-      results.push({ name: call.name, status: "ERR", ms: 0, note: String(err?.message ?? err).slice(0, 60) });
-    }
-  }
-
+/**
+ * Print the result table and exit non-zero if anything genuinely failed.
+ *
+ * Shared by the sweep and the exhaust loop. Skipped endpoints are listed but do
+ * not count as failures: a run trimmed to fit the balance is a clean result.
+ * In exhaust mode the same endpoint appears once per call, which is intended —
+ * the table is a call log there, not a checklist.
+ */
+function summarise(results: Outcome[], skipped: Call[], payer = "", fullCost = 0): void {
   // Report skips in the table too, so the summary always accounts for every
   // endpoint that was asked for rather than silently listing fewer rows.
   for (const call of skipped) {
@@ -521,10 +506,183 @@ async function main() {
   // top-up would buy.
   if (skipped.length > 0) {
     console.log(`All ${ran} endpoints that fit the budget passed. ${skipped.length} skipped for funds.`);
-    console.log(`Top up ${payer.slice(0, 8)}… with ~$${(fullCost).toFixed(2)} USDC to sweep all ${results.length}.`);
+    console.log(`Top up ${payer.slice(0, 8)}… with ~$${fullCost.toFixed(2)} USDC to sweep all ${results.length}.`);
+  } else if (EXHAUST) {
+    console.log(`All ${ran} calls OK — balance spent down.`);
   } else {
     console.log(`All ${ran} endpoints OK.`);
   }
+}
+
+async function main() {
+  // Validated here rather than at module scope: a top-level throw escapes the
+  // catch below, and ts-node-dev respawns the process instead of exiting, so a
+  // typo in --max-spend hangs the terminal rather than reporting itself.
+  if (MAX_SPEND !== null && !(MAX_SPEND > 0)) {
+    throw new Error(`--max-spend must be a positive number of USDC, got "${maxSpendArg}"`);
+  }
+
+  const mnemonic = process.env.AVM_CLIENT_MNEMONIC;
+  if (!DRY && !mnemonic) {
+    throw new Error("AVM_CLIENT_MNEMONIC is required for a paid run (use --dry to skip payment).");
+  }
+
+  const requested = ONLY ? CALLS.filter((c) => ONLY.includes(c.name)) : CALLS;
+  if (requested.length === 0) {
+    throw new Error(`--only matched no endpoints. Known: ${CALLS.map((c) => c.name).join(", ")}`);
+  }
+
+  const algodUrl = process.env.ALGOD_URL || "https://mainnet-api.algonode.cloud";
+
+  console.log(`Base URL   : ${baseUrl}`);
+  console.log(`Algod      : ${algodUrl}`);
+
+  // A dry run only decodes 402 quotes, so it needs no signer and no scheme.
+  const core = new x402Client();
+  let payer = "";
+  if (mnemonic) {
+    const account = await resolveAccount(mnemonic);
+    payer = account.addr;
+    if (!DRY) {
+      registerExactAvmScheme(core, {
+        signer: await toSigner(account),
+        algodConfig: { algodUrl },
+      });
+      console.log(`Paying from: ${payer}`);
+    }
+  }
+
+  // Decide what this wallet can actually pay for before spending anything.
+  let selected = requested;
+  let skipped: Call[] = [];
+  let budget: number | null = null;
+  const fullCost = requested.reduce((sum, c) => sum + c.price, 0);
+
+  if (DRY) {
+    console.log(`Endpoints  : ${requested.length}`);
+    console.log("Mode       : DRY RUN — quotes only, no payment");
+  } else {
+    const balances = await readBalances(payer);
+
+    if (!balances) {
+      console.log("Balance    : indexer unreachable — skipping the budget check");
+    } else if (!balances.exists) {
+      throw new Error(
+        `${payer} does not exist on chain — it has never been funded.\n` +
+          "If you just switched to a 24-word phrase, confirm this address matches your wallet:\n" +
+          "an unfunded account and a wrong derivation path look identical from here.",
+      );
+    } else {
+      const usdc = balances.usdc;
+      console.log(`ALGO       : ${balances.algo.toFixed(6)}${balances.algo < MIN_ALGO ? "  <- low, may not cover fees" : ""}`);
+      console.log(
+        usdc === null
+          ? "USDC       : not opted in — run: npm run optin-usdc"
+          : `USDC       : ${usdc.toFixed(6)}`,
+      );
+
+      if (usdc === null) {
+        throw new Error(
+          `${payer} is not opted in to USDC (ASA ${USDC_ASA}), so no paid endpoint can settle.\n` +
+            "Run: npm run optin-usdc   (or: npm run run-all -- --dry for a free pass)",
+        );
+      }
+
+      budget = MAX_SPEND !== null ? Math.min(usdc, MAX_SPEND) : usdc;
+
+      if (!IGNORE_BUDGET && !EXHAUST) {
+        const plan = planWithinBudget(requested, usdc);
+        selected = plan.run;
+        skipped = plan.skip;
+      }
+    }
+  }
+
+  if (EXHAUST) {
+    if (DRY) throw new Error("--exhaust spends real USDC and cannot be combined with --dry.");
+    if (requested.every((c) => c.price === 0)) {
+      throw new Error("--exhaust needs at least one paid endpoint; the selection is all free routes.");
+    }
+    if (budget === null) {
+      throw new Error(
+        "--exhaust needs the wallet balance to know when to stop, and the indexer " +
+          "could not be reached. Retry, or set INDEXER_URL to a reachable node.",
+      );
+    }
+    if (budget > BIG_BALANCE && !CONFIRMED) {
+      throw new Error(
+        `refusing to exhaust $${budget.toFixed(2)} USDC without confirmation.\n` +
+          `--exhaust spends the balance down to the cheapest endpoint's price ($0.02).\n` +
+          "Re-run with --yes to confirm, or bound it: --max-spend=0.50",
+      );
+    }
+  }
+
+  if (EXHAUST) {
+    const cheapest = Math.min(...requested.filter((c) => c.price > 0).map((c) => c.price));
+    console.log(`Endpoints  : ${requested.filter((c) => c.price > 0).length} paid (free routes excluded)`);
+    console.log(
+      `Mode       : EXHAUST — random endpoint per call until under $${cheapest.toFixed(2)}` +
+        (MAX_SPEND !== null ? `, capped at $${MAX_SPEND.toFixed(2)}` : ""),
+    );
+    console.log(`Budget     : $${budget!.toFixed(6)}`);
+  } else if (!DRY) {
+    const spend = selected.reduce((sum, c) => sum + c.price, 0);
+    if (skipped.length > 0) {
+      const paidCount = selected.filter((c) => c.price > 0).length;
+      console.log(
+        `Plan       : ${selected.length} of ${requested.length} endpoints fit the budget ` +
+          `(${paidCount} paid, ~$${spend.toFixed(2)})`,
+      );
+      console.log(`  skipping : ${skipped.map((c) => c.name).join(", ")}`);
+      console.log(
+        `             short by ~$${(fullCost - spend).toFixed(2)} — top up ${payer.slice(0, 8)}… ` +
+          "with USDC to run everything",
+      );
+    } else {
+      console.log(`Endpoints  : ${selected.length}`);
+      console.log(`Mode       : PAID — will spend ~$${spend.toFixed(2)} USDC`);
+    }
+  }
+
+  if (!EXHAUST && selected.length === 0) {
+    console.log("\nNothing to run: the balance does not cover any paid endpoint.");
+    console.log(`Top up ${payer} with USDC (ASA ${USDC_ASA}), or use --dry for a free pass.`);
+    return;
+  }
+
+  // relationship needs two distinct addresses; the payer is the natural
+  // counterparty since it has settled against the receiver many times.
+  const counterparty = payer && payer !== RECEIVER ? payer : FALLBACK_COUNTERPARTY;
+  for (const call of requested) {
+    if (call.name === "relationship") call.path = `/api/relationship?a=${RECEIVER}&b=${counterparty}`;
+  }
+
+  const http = new x402HTTPClient(core);
+
+  if (EXHAUST) {
+    const results = await runExhaust(http, requested, payer, budget!);
+    summarise(results, []);
+    return;
+  }
+
+  const results: Outcome[] = [];
+  for (const [i, call] of selected.entries()) {
+    // Back-to-back paid calls from one wallet can outrun settlement: the next
+    // payment is built before the facilitator has confirmed the previous one,
+    // and the server answers 402 again. A short gap keeps a full sweep clean.
+    // Nothing is charged when this happens, but it looks like a failure.
+    if (!DRY && i > 0) await new Promise((r) => setTimeout(r, SETTLE_GAP_MS));
+
+    try {
+      results.push(await runCall(http, call, payer));
+    } catch (err: any) {
+      console.log(`  error: ${err?.message ?? err}`);
+      results.push({ name: call.name, status: "ERR", ms: 0, note: String(err?.message ?? err).slice(0, 60) });
+    }
+  }
+
+  summarise(results, skipped, payer, fullCost);
 }
 
 main().catch((err) => {
