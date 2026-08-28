@@ -74,8 +74,11 @@ const BIG_BALANCE = 5;
 
 const indexerUrl = (process.env.INDEXER_URL || "https://mainnet-idx.algonode.cloud").replace(/\/$/, "");
 
-/** A live mainnet USDC settlement of ours, used as verify-payment's subject. */
-const SAMPLE_TXID = "U6RNSGSAWJ3AINV4WGKGELVJC5SGHN2MS3HGJEQTOBOHKHMX7HYA";
+/**
+ * Sample subjects now come from /api/catalog. These two remain because they are
+ * not about sample data: USDC_ASA is what the balance checks query, and
+ * RECEIVER is compared against the payer to pick a relationship counterparty.
+ */
 const RECEIVER = "G3YVTPURK6VFSM5CXEH7QFTZXLCXBJL6UMAIUUYJO4P2XF3MHQ4FUHYYB4";
 const USDC_ASA = "31566704";
 
@@ -96,74 +99,42 @@ interface Call {
   price: number;
 }
 
-const CALLS: Call[] = [
-  {
-    name: "inference",
-    method: "POST",
-    path: "/api/inference",
-    price: 0.02,
-    body: { prompt: "In one sentence, what is the x402 payment protocol?" },
-  },
-  {
-    name: "summarize",
-    method: "POST",
-    path: "/api/summarize",
-    price: 0.03,
-    body: {
-      text:
-        "The x402 protocol revives the long-dormant HTTP 402 Payment Required status code. " +
-        "It lets a server demand an on-chain micropayment before serving a response. " +
-        "Clients pay per request, with no accounts, API keys, or subscriptions. " +
-        "On Algorand, payments settle in USDC through a facilitator in seconds.",
-    },
-  },
-  {
-    name: "nl-to-sql",
-    method: "POST",
-    path: "/api/nl-to-sql",
-    price: 0.03,
-    body: {
-      question: "Top 5 users by total completed order value in 2026",
-      schema:
-        "CREATE TABLE users (id BIGINT PRIMARY KEY, email TEXT, plan TEXT);\n" +
-        "CREATE TABLE orders (id BIGINT PRIMARY KEY, user_id BIGINT REFERENCES users(id), " +
-        "total NUMERIC(10,2), status TEXT, placed_at TIMESTAMP);",
-      dialect: "postgres",
-    },
-  },
-  {
-    name: "code-review",
-    method: "POST",
-    path: "/api/code-review",
-    price: 0.08,
-    body: { owner: "algorand", repo: "go-algorand", pull: 6100 },
-  },
-  {
-    name: "verify-payment",
-    method: "POST",
-    path: "/api/verify-payment",
-    price: 0.02,
-    body: {
-      txid: SAMPLE_TXID,
-      expectedReceiver: RECEIVER,
-      expectedAsset: USDC_ASA,
-      expectedAmount: 0.02,
-    },
-  },
-  { name: "wallet-risk", method: "GET", path: `/api/wallet-risk/${RECEIVER}`, price: 0.03 },
-  { name: "portfolio", method: "GET", path: `/api/portfolio/${RECEIVER}`, price: 0 },
-  { name: "asset", method: "GET", path: `/api/asset/${USDC_ASA}`, price: 0.02 },
-  { name: "asset-risk", method: "GET", path: `/api/asset-risk/${USDC_ASA}`, price: 0.03 },
-  { name: "explain-tx", method: "GET", path: `/api/explain-tx/${SAMPLE_TXID}`, price: 0.03 },
-  {
-    // Filled in at startup: `b` is the paying wallet, which has a real transfer
-    // history with the receiver. The two addresses must differ.
-    name: "relationship",
-    method: "GET",
-    path: `/api/relationship?a=${RECEIVER}&b=`,
-    price: 0.03,
-  },
-];
+/**
+ * Fetch the endpoint list from the server rather than hardcoding it.
+ *
+ * The prices, paths, and sample bodies used to live here as a literal, which
+ * meant every new endpoint had to be added in two places and the prices kept in
+ * sync with the server by hand. The server now publishes /api/catalog derived
+ * from its own payment config, so this runner cannot disagree with what is
+ * actually being charged.
+ */
+async function fetchCatalog(): Promise<Call[]> {
+  const url = `${baseUrl}/api/catalog`;
+  let payload: any;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    payload = await res.json();
+  } catch (err: any) {
+    throw new Error(
+      `could not fetch the endpoint catalog from ${url}: ${err?.message ?? err}\n` +
+        "Is the server running, and is AGENTHUB_BASE_URL correct?",
+    );
+  }
+
+  const endpoints = payload?.endpoints;
+  if (!Array.isArray(endpoints) || endpoints.length === 0) {
+    throw new Error(`${url} returned no endpoints.`);
+  }
+
+  return endpoints.map((e: any) => ({
+    name: e.name,
+    method: e.method,
+    path: e.path,
+    price: e.priceUsd,
+    ...(e.sampleBody === undefined ? {} : { body: e.sampleBody }),
+  }));
+}
 
 interface Outcome {
   name: string;
@@ -527,9 +498,10 @@ async function main() {
     throw new Error("AVM_CLIENT_MNEMONIC is required for a paid run (use --dry to skip payment).");
   }
 
-  const requested = ONLY ? CALLS.filter((c) => ONLY.includes(c.name)) : CALLS;
+  const catalog = await fetchCatalog();
+  const requested = ONLY ? catalog.filter((c) => ONLY.includes(c.name)) : catalog;
   if (requested.length === 0) {
-    throw new Error(`--only matched no endpoints. Known: ${CALLS.map((c) => c.name).join(", ")}`);
+    throw new Error(`--only matched no endpoints. Known: ${catalog.map((c) => c.name).join(", ")}`);
   }
 
   const algodUrl = process.env.ALGOD_URL || "https://mainnet-api.algonode.cloud";
@@ -651,8 +623,11 @@ async function main() {
     return;
   }
 
-  // relationship needs two distinct addresses; the payer is the natural
-  // counterparty since it has settled against the receiver many times.
+  // relationship needs two distinct addresses. The catalog ships a generic
+  // sample pair, but the paying wallet is a better second address here: it has
+  // settled against the receiver on every previous run, so the lookup returns a
+  // real transfer history rather than whatever the generic sample happens to
+  // show.
   const counterparty = payer && payer !== RECEIVER ? payer : FALLBACK_COUNTERPARTY;
   for (const call of requested) {
     if (call.name === "relationship") call.path = `/api/relationship?a=${RECEIVER}&b=${counterparty}`;

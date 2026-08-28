@@ -17,7 +17,8 @@ import {
   PUBLIC_BASE_URL,
   IS_MAINNET,
 } from "./config";
-import { renderLandingPage, renderLlmsTxt } from "./landing";
+import { renderLandingPage, renderLlmsTxt, TOOLS } from "./landing";
+import { buildCatalog } from "./catalog";
 import { anthropicComplete, AnthropicError } from "./services/anthropic";
 import { nlToSql, InvalidSqlRequestError } from "./services/nl-to-sql";
 import {
@@ -968,6 +969,13 @@ app.get("/", (req, res) => {
     endpoints: Object.keys(routes),
     llmsTxt: "/llms.txt",
   });
+});
+
+// The machine-readable endpoint catalog, derived from the payment config above.
+// The browser playground and scripts/run-all.ts both read this, so adding a
+// route to `routes` publishes it everywhere without touching either client.
+app.get("/api/catalog", (_req, res) => {
+  res.json({ endpoints: buildCatalog(routes, TOOLS) });
 });
 
 app.get("/llms.txt", (req, res) => {
