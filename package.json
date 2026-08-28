@@ -11,13 +11,15 @@
     "test-client": "ts-node-dev --transpile-only scripts/test-client.ts",
     "run-all": "ts-node-dev --transpile-only scripts/run-all.ts",
     "run-exhaust": "ts-node-dev --transpile-only scripts/run-all.ts --exhaust",
-    "optin-usdc": "ts-node-dev --transpile-only scripts/optin-usdc.ts"
+    "optin-usdc": "ts-node-dev --transpile-only scripts/optin-usdc.ts",
+    "use-client": "ts-node-dev --transpile-only scripts/use-client.ts"
   },
   "dependencies": {
     "@x402-avm/avm": "^2.6.1",
     "@x402-avm/core": "^2.6.1",
     "@x402-avm/express": "^2.6.1",
     "@x402-avm/extensions": "^2.6.1",
+    "agenthub-algo": "^0.3.0",
     "dotenv": "^16.4.5",
     "express": "^4.19.2"
   },
