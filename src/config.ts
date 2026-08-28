@@ -7,6 +7,9 @@ const USDC_MAINNET_ASA_ID = "31566704";
 const INDEXER_TESTNET_URL = "https://testnet-idx.algonode.cloud";
 const INDEXER_MAINNET_URL = "https://mainnet-idx.algonode.cloud";
 
+const ALGOD_TESTNET_URL = "https://testnet-api.algonode.cloud";
+const ALGOD_MAINNET_URL = "https://mainnet-api.algonode.cloud";
+
 const isMainnet = (process.env.X402_NETWORK || "testnet").toLowerCase() === "mainnet";
 
 /** True when serving real mainnet payments. Exported so the server can warn loudly otherwise. */
@@ -21,6 +24,13 @@ export const USDC_ASA_ID = isMainnet ? USDC_MAINNET_ASA_ID : USDC_TESTNET_ASA_ID
 export const INDEXER_URL =
   process.env.INDEXER_URL?.replace(/\/$/, "") ||
   (isMainnet ? INDEXER_MAINNET_URL : INDEXER_TESTNET_URL);
+
+// Algorand node used to build payment transactions. The server itself never
+// needs this — the facilitator settles — but the browser playground signs
+// locally and must reach a node to fetch suggested params.
+export const ALGOD_URL =
+  process.env.ALGOD_URL?.replace(/\/$/, "") ||
+  (isMainnet ? ALGOD_MAINNET_URL : ALGOD_TESTNET_URL);
 
 // Anthropic key is NOT required to boot the server (only /api/inference and
 // /api/summarize need it). Handlers fail loudly (502) when it is missing.

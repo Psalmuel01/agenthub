@@ -409,6 +409,11 @@ export function renderLandingPage(baseUrl?: string): string {
       gets a useful result back. Payment <em>is</em> the authorization layer.
     </p>
 
+    <p style="margin:-.4rem 0 0">
+      <a href="/playground"><strong>Try it in the browser →</strong></a>
+      <span class="muted"> Connect an Algorand wallet and call any endpoint below, no setup.</span>
+    </p>
+
     <h2>Tools</h2>
 ${cards}
 

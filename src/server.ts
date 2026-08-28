@@ -16,9 +16,11 @@ import {
   HAS_ANTHROPIC_KEY,
   PUBLIC_BASE_URL,
   IS_MAINNET,
+  ALGOD_URL,
 } from "./config";
 import { renderLandingPage, renderLlmsTxt, TOOLS } from "./landing";
 import { buildCatalog } from "./catalog";
+import { renderPlayground } from "./playground";
 import { anthropicComplete, AnthropicError } from "./services/anthropic";
 import { nlToSql, InvalidSqlRequestError } from "./services/nl-to-sql";
 import {
@@ -974,6 +976,19 @@ app.get("/", (req, res) => {
 // The machine-readable endpoint catalog, derived from the payment config above.
 // The browser playground and scripts/run-all.ts both read this, so adding a
 // route to `routes` publishes it everywhere without touching either client.
+// The browser playground: connect a wallet, run any endpoint. Same origin as
+// the API it calls, which keeps the x402 payment headers readable without CORS.
+app.get("/playground", (_req, res) => {
+  res.type("html").send(
+    renderPlayground({
+      algodUrl: ALGOD_URL,
+      network: NETWORK,
+      isMainnet: IS_MAINNET,
+      usdcAsaId: USDC_ASA_ID,
+    }),
+  );
+});
+
 app.get("/api/catalog", (_req, res) => {
   res.json({ endpoints: buildCatalog(routes, TOOLS) });
 });

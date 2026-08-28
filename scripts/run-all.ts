@@ -75,11 +75,14 @@ const BIG_BALANCE = 5;
 const indexerUrl = (process.env.INDEXER_URL || "https://mainnet-idx.algonode.cloud").replace(/\/$/, "");
 
 /**
- * Sample subjects now come from /api/catalog. These two remain because they are
- * not about sample data: USDC_ASA is what the balance checks query, and
- * RECEIVER is compared against the payer to pick a relationship counterparty.
+ * Sample subjects. Normally supplied by /api/catalog; kept here for the
+ * fallback list and because two of them are not sample data at all — USDC_ASA
+ * is what the balance checks query, and SAMPLE_ADDRESS doubles as the receiver
+ * the payer is compared against when picking a relationship counterparty.
  */
-const RECEIVER = "G3YVTPURK6VFSM5CXEH7QFTZXLCXBJL6UMAIUUYJO4P2XF3MHQ4FUHYYB4";
+const SAMPLE_ADDRESS = "G3YVTPURK6VFSM5CXEH7QFTZXLCXBJL6UMAIUUYJO4P2XF3MHQ4FUHYYB4";
+const RECEIVER = SAMPLE_ADDRESS;
+const SAMPLE_TXID = "U6RNSGSAWJ3AINV4WGKGELVJC5SGHN2MS3HGJEQTOBOHKHMX7HYA";
 const USDC_ASA = "31566704";
 
 /**
@@ -100,31 +103,120 @@ interface Call {
 }
 
 /**
+ * The endpoint list to fall back on when the server publishes no catalog.
+ *
+ * A server deployed before /api/catalog existed answers 404, and that must not
+ * stop a run: the endpoints are still there and still payable, we just have to
+ * describe them ourselves. Prices here can drift from the server, which is the
+ * whole reason the catalog exists — so this is a compatibility shim, not a
+ * second source of truth. The runner says which one it used.
+ */
+const FALLBACK_CALLS: Call[] = [
+  { name: "portfolio", method: "GET", path: `/api/portfolio/${SAMPLE_ADDRESS}`, price: 0 },
+  { name: "asset", method: "GET", path: `/api/asset/${USDC_ASA}`, price: 0.02 },
+  {
+    name: "inference",
+    method: "POST",
+    path: "/api/inference",
+    price: 0.02,
+    body: { prompt: "In one sentence, what is the x402 payment protocol?" },
+  },
+  {
+    name: "verify-payment",
+    method: "POST",
+    path: "/api/verify-payment",
+    price: 0.02,
+    body: {
+      txid: SAMPLE_TXID,
+      expectedReceiver: SAMPLE_ADDRESS,
+      expectedAsset: USDC_ASA,
+      expectedAmount: 0.02,
+    },
+  },
+  { name: "asset-risk", method: "GET", path: `/api/asset-risk/${USDC_ASA}`, price: 0.03 },
+  { name: "explain-tx", method: "GET", path: `/api/explain-tx/${SAMPLE_TXID}`, price: 0.03 },
+  {
+    name: "nl-to-sql",
+    method: "POST",
+    path: "/api/nl-to-sql",
+    price: 0.03,
+    body: {
+      question: "Top 5 users by total completed order value in 2026",
+      schema:
+        "CREATE TABLE users (id BIGINT PRIMARY KEY, email TEXT, plan TEXT);\n" +
+        "CREATE TABLE orders (id BIGINT PRIMARY KEY, user_id BIGINT REFERENCES users(id), " +
+        "total NUMERIC(10,2), status TEXT, placed_at TIMESTAMP);",
+      dialect: "postgres",
+    },
+  },
+  {
+    name: "relationship",
+    method: "GET",
+    path: `/api/relationship?a=${SAMPLE_ADDRESS}&b=${FALLBACK_COUNTERPARTY}`,
+    price: 0.03,
+  },
+  {
+    name: "summarize",
+    method: "POST",
+    path: "/api/summarize",
+    price: 0.03,
+    body: {
+      text:
+        "The x402 protocol revives the long-dormant HTTP 402 Payment Required status code. " +
+        "It lets a server demand an on-chain micropayment before serving a response. " +
+        "Clients pay per request, with no accounts, API keys, or subscriptions. " +
+        "On Algorand, payments settle in USDC through a facilitator in seconds.",
+    },
+  },
+  { name: "wallet-risk", method: "GET", path: `/api/wallet-risk/${SAMPLE_ADDRESS}`, price: 0.03 },
+  {
+    name: "code-review",
+    method: "POST",
+    path: "/api/code-review",
+    price: 0.08,
+    body: { owner: "algorand", repo: "go-algorand", pull: 6100 },
+  },
+];
+
+/**
  * Fetch the endpoint list from the server rather than hardcoding it.
  *
- * The prices, paths, and sample bodies used to live here as a literal, which
- * meant every new endpoint had to be added in two places and the prices kept in
- * sync with the server by hand. The server now publishes /api/catalog derived
- * from its own payment config, so this runner cannot disagree with what is
- * actually being charged.
+ * Prices, paths, and sample bodies used to live in this file, which meant every
+ * new endpoint had to be added in two places and kept in sync with the server by
+ * hand. The server now derives /api/catalog from its own payment config, so the
+ * runner cannot disagree with what is actually being charged.
+ *
+ * A 404 means the server predates the catalog — older deployments are still
+ * perfectly payable, so fall back rather than refusing to run. An unreachable
+ * server is a different matter and still fails loudly: falling back there would
+ * just produce eleven confusing connection errors instead of one clear one.
  */
 async function fetchCatalog(): Promise<Call[]> {
   const url = `${baseUrl}/api/catalog`;
-  let payload: any;
+  let res: Response;
   try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    payload = await res.json();
+    res = await fetch(url);
   } catch (err: any) {
     throw new Error(
-      `could not fetch the endpoint catalog from ${url}: ${err?.message ?? err}\n` +
+      `could not reach ${baseUrl}: ${err?.message ?? err}\n` +
         "Is the server running, and is AGENTHUB_BASE_URL correct?",
     );
   }
 
-  const endpoints = payload?.endpoints;
+  if (res.status === 404) {
+    console.log("Catalog    : not published by this server — using the built-in list");
+    console.log("             (deploy the current build to serve /api/catalog)");
+    return FALLBACK_CALLS;
+  }
+
+  if (!res.ok) {
+    throw new Error(`${url} returned ${res.status} ${res.statusText}`);
+  }
+
+  const endpoints = (await res.json())?.endpoints;
   if (!Array.isArray(endpoints) || endpoints.length === 0) {
-    throw new Error(`${url} returned no endpoints.`);
+    console.log("Catalog    : server returned an empty catalog — using the built-in list");
+    return FALLBACK_CALLS;
   }
 
   return endpoints.map((e: any) => ({
