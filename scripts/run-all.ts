@@ -6,13 +6,22 @@
  * is paid once instead of eleven times.
  *
  * Usage:
- *   npm run run-all                  # every endpoint
+ *   npm run run-all                  # every endpoint the wallet can afford
  *   npm run run-all -- --dry         # 402 quotes only, no payment, no spend
+ *   npm run run-all -- --all         # attempt every endpoint regardless of balance
  *   npm run run-all -- --only=asset-risk,portfolio
  *
- * COSTS REAL USDC on mainnet. The full paid pass spends ~$0.28 of the paying
+ * COSTS REAL USDC on mainnet. The full paid pass spends ~$0.32 of the paying
  * wallet's balance. Use --dry first when you only want to confirm the routes
  * are up and the quotes are right.
+ *
+ * BUDGET PREFLIGHT. Before spending anything the runner reads the payer's ALGO
+ * and USDC balances on chain and runs only what the balance covers, reporting
+ * the rest as skipped. Running out mid-sweep used to look like a server fault:
+ * the tail of the run came back 402 with "underflow on subtracting ... from
+ * sender amount", which is the chain saying the wallet is empty, not the
+ * endpoint being broken. A partial run is not a failure and exits 0; --all
+ * restores the old attempt-everything behaviour.
  *
  * Requires in .env: AVM_CLIENT_MNEMONIC, AGENTHUB_BASE_URL, ALGOD_URL
  */
@@ -26,10 +35,22 @@ import { resolveAccount, toSigner } from "./mnemonic";
 const SETTLE_GAP_MS = 2_000;
 
 const DRY = process.argv.includes("--dry");
+/** Skip the budget preflight and attempt every selected endpoint. */
+const IGNORE_BUDGET = process.argv.includes("--all");
 const onlyArg = process.argv.find((a) => a.startsWith("--only="));
 const ONLY = onlyArg ? onlyArg.slice("--only=".length).split(",").map((s) => s.trim()) : null;
 
 const baseUrl = (process.env.AGENTHUB_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
+
+/**
+ * Fee headroom, in ALGO, to keep a paid sweep from stalling on fees.
+ *
+ * Each paid call signs a 2-transaction group, so a full sweep is a few thousand
+ * microALGO. This is a floor for warning, not an exact cost.
+ */
+const MIN_ALGO = 0.05;
+
+const indexerUrl = (process.env.INDEXER_URL || "https://mainnet-idx.algonode.cloud").replace(/\/$/, "");
 
 /** A live mainnet USDC settlement of ours, used as verify-payment's subject. */
 const SAMPLE_TXID = "U6RNSGSAWJ3AINV4WGKGELVJC5SGHN2MS3HGJEQTOBOHKHMX7HYA";
@@ -127,6 +148,75 @@ interface Outcome {
   status: number | string;
   ms: number;
   note: string;
+  /** Never attempted — the balance did not cover it. Not a failure. */
+  skipped?: boolean;
+}
+
+interface Balances {
+  /** Whole ALGO. */
+  algo: number;
+  /** Whole USDC, or null when the account holds no USDC opt-in at all. */
+  usdc: number | null;
+  /** False when the address has never been funded, so no balances exist. */
+  exists: boolean;
+}
+
+/**
+ * Read the payer's ALGO and USDC balances from the indexer.
+ *
+ * Throws nothing: an unreachable indexer must not abort a run that would
+ * otherwise work, so the caller treats a failed read as "budget unknown" and
+ * falls through to attempting everything.
+ */
+async function readBalances(addr: string): Promise<Balances | null> {
+  try {
+    const acct = await fetch(`${indexerUrl}/v2/accounts/${addr}`).then((r) => r.json() as any);
+    if (acct?.message || !acct?.account) return { algo: 0, usdc: null, exists: false };
+
+    const held = await fetch(`${indexerUrl}/v2/accounts/${addr}/assets?asset-id=${USDC_ASA}`)
+      .then((r) => r.json() as any);
+    const usdc = (held?.assets ?? [])[0];
+
+    return {
+      algo: Number(acct.account.amount ?? 0) / 1e6,
+      usdc: usdc ? Number(usdc.amount ?? 0) / 1e6 : null,
+      exists: true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Split the selected calls into what the balance covers and what it does not.
+ *
+ * Free routes always run. Paid ones go cheapest-first so a thin balance
+ * exercises as many distinct endpoints as it can buy, which is what a smoke
+ * test is for — one expensive route is worth less here than three cheap ones.
+ * Original ordering is preserved in the returned list so the run still reads
+ * top-to-bottom the way the file declares it.
+ */
+function planWithinBudget(calls: Call[], usdc: number): { run: Call[]; skip: Call[] } {
+  const affordable = new Set<string>();
+  let left = usdc;
+
+  for (const call of [...calls].sort((a, b) => a.price - b.price)) {
+    if (call.price === 0) {
+      affordable.add(call.name);
+      continue;
+    }
+    // Prices are cents-scale, so compare in micro-USDC to keep float drift from
+    // rejecting a call the wallet can exactly afford.
+    if (Math.round(left * 1e6) >= Math.round(call.price * 1e6)) {
+      affordable.add(call.name);
+      left -= call.price;
+    }
+  }
+
+  return {
+    run: calls.filter((c) => affordable.has(c.name)),
+    skip: calls.filter((c) => !affordable.has(c.name)),
+  };
 }
 
 function preview(text: string, max = 220): string {
@@ -142,7 +232,7 @@ function preview(text: string, max = 220): string {
  * freshly derived address "account not found" also hints the derivation path
  * may be wrong.
  */
-async function diagnosePayer(addr: string, indexer: string): Promise<string[]> {
+async function diagnosePayer(addr: string, indexer = indexerUrl): Promise<string[]> {
   const notes: string[] = [];
   try {
     const acct = await fetch(`${indexer}/v2/accounts/${addr}`).then((r) => r.json() as any);
@@ -259,8 +349,7 @@ async function runCall(http: x402HTTPClient, call: Call, payer: string): Promise
   } else if (paid.status === 402) {
     note = "payment refused — not charged";
     console.log("\n  Payment was refused, so nothing was charged. Checking the payer:");
-    const indexer = process.env.INDEXER_URL || "https://mainnet-idx.algonode.cloud";
-    for (const line of await diagnosePayer(payer, indexer)) console.log(`    ${line}`);
+    for (const line of await diagnosePayer(payer)) console.log(`    ${line}`);
   } else {
     note = `FAILED AFTER PAYMENT (${paid.status})`;
   }
@@ -274,22 +363,15 @@ async function main() {
     throw new Error("AVM_CLIENT_MNEMONIC is required for a paid run (use --dry to skip payment).");
   }
 
-  const selected = ONLY ? CALLS.filter((c) => ONLY.includes(c.name)) : CALLS;
-  if (selected.length === 0) {
+  const requested = ONLY ? CALLS.filter((c) => ONLY.includes(c.name)) : CALLS;
+  if (requested.length === 0) {
     throw new Error(`--only matched no endpoints. Known: ${CALLS.map((c) => c.name).join(", ")}`);
   }
 
-  const spend = selected.reduce((sum, c) => sum + c.price, 0);
   const algodUrl = process.env.ALGOD_URL || "https://mainnet-api.algonode.cloud";
 
   console.log(`Base URL   : ${baseUrl}`);
   console.log(`Algod      : ${algodUrl}`);
-  console.log(`Endpoints  : ${selected.length}`);
-  console.log(
-    DRY
-      ? "Mode       : DRY RUN — quotes only, no payment"
-      : `Mode       : PAID — will spend ~$${spend.toFixed(2)} USDC`,
-  );
 
   // A dry run only decodes 402 quotes, so it needs no signer and no scheme.
   const core = new x402Client();
@@ -304,6 +386,74 @@ async function main() {
       });
       console.log(`Paying from: ${payer}`);
     }
+  }
+
+  // Decide what this wallet can actually pay for before spending anything.
+  let selected = requested;
+  let skipped: Call[] = [];
+  const fullCost = requested.reduce((sum, c) => sum + c.price, 0);
+
+  if (DRY) {
+    console.log(`Endpoints  : ${requested.length}`);
+    console.log("Mode       : DRY RUN — quotes only, no payment");
+  } else {
+    const balances = await readBalances(payer);
+
+    if (!balances) {
+      console.log("Balance    : indexer unreachable — skipping the budget check");
+    } else if (!balances.exists) {
+      throw new Error(
+        `${payer} does not exist on chain — it has never been funded.\n` +
+          "If you just switched to a 24-word phrase, confirm this address matches your wallet:\n" +
+          "an unfunded account and a wrong derivation path look identical from here.",
+      );
+    } else {
+      const usdc = balances.usdc;
+      console.log(`ALGO       : ${balances.algo.toFixed(6)}${balances.algo < MIN_ALGO ? "  <- low, may not cover fees" : ""}`);
+      console.log(
+        usdc === null
+          ? "USDC       : not opted in — run: npm run optin-usdc"
+          : `USDC       : ${usdc.toFixed(6)}`,
+      );
+
+      if (usdc === null) {
+        throw new Error(
+          `${payer} is not opted in to USDC (ASA ${USDC_ASA}), so no paid endpoint can settle.\n` +
+            "Run: npm run optin-usdc   (or: npm run run-all -- --dry for a free pass)",
+        );
+      }
+
+      if (!IGNORE_BUDGET) {
+        const plan = planWithinBudget(requested, usdc);
+        selected = plan.run;
+        skipped = plan.skip;
+      }
+    }
+  }
+
+  if (!DRY) {
+    const spend = selected.reduce((sum, c) => sum + c.price, 0);
+    if (skipped.length > 0) {
+      const paidCount = selected.filter((c) => c.price > 0).length;
+      console.log(
+        `Plan       : ${selected.length} of ${requested.length} endpoints fit the budget ` +
+          `(${paidCount} paid, ~$${spend.toFixed(2)})`,
+      );
+      console.log(`  skipping : ${skipped.map((c) => c.name).join(", ")}`);
+      console.log(
+        `             short by ~$${(fullCost - spend).toFixed(2)} — top up ${payer.slice(0, 8)}… ` +
+          "with USDC to run everything",
+      );
+    } else {
+      console.log(`Endpoints  : ${selected.length}`);
+      console.log(`Mode       : PAID — will spend ~$${spend.toFixed(2)} USDC`);
+    }
+  }
+
+  if (selected.length === 0) {
+    console.log("\nNothing to run: the balance does not cover any paid endpoint.");
+    console.log(`Top up ${payer} with USDC (ASA ${USDC_ASA}), or use --dry for a free pass.`);
+    return;
   }
 
   // relationship needs two distinct addresses; the payer is the natural
@@ -331,24 +481,49 @@ async function main() {
     }
   }
 
+  // Report skips in the table too, so the summary always accounts for every
+  // endpoint that was asked for rather than silently listing fewer rows.
+  for (const call of skipped) {
+    results.push({
+      name: call.name,
+      status: "—",
+      ms: 0,
+      note: `skipped — needs $${call.price.toFixed(2)}`,
+      skipped: true,
+    });
+  }
+
   console.log(`\n${"═".repeat(72)}`);
   console.log("Summary");
   console.log("═".repeat(72));
   for (const r of results) {
     const ok = r.status === 200 || (DRY && r.status === 402);
-    const mark = ok ? "✅" : "❌";
+    const mark = r.skipped ? "⏭️ " : ok ? "✅" : "❌";
+    const timing = r.skipped ? "     " : `${(r.ms / 1000).toFixed(1).padStart(5)}s`;
     console.log(
-      `${mark} ${r.name.padEnd(16)} ${String(r.status).padEnd(5)} ${(r.ms / 1000).toFixed(1).padStart(5)}s  ${r.note}`,
+      `${mark} ${r.name.padEnd(16)} ${String(r.status).padEnd(5)} ${timing}  ${r.note}`,
     );
   }
 
-  const failed = results.filter((r) => !(r.status === 200 || (DRY && r.status === 402)));
+  const failed = results.filter(
+    (r) => !r.skipped && !(r.status === 200 || (DRY && r.status === 402)),
+  );
+  const ran = results.length - skipped.length;
+
   console.log("");
-  if (failed.length === 0) {
-    console.log(`All ${results.length} endpoints OK.`);
-  } else {
-    console.log(`${failed.length} of ${results.length} failed: ${failed.map((f) => f.name).join(", ")}`);
+  if (failed.length > 0) {
+    console.log(`${failed.length} of ${ran} run failed: ${failed.map((f) => f.name).join(", ")}`);
     process.exit(1);
+  }
+
+  // A budget-trimmed sweep is a clean result, not a partial failure: every
+  // endpoint that was affordable answered correctly. Exit 0 and say what a
+  // top-up would buy.
+  if (skipped.length > 0) {
+    console.log(`All ${ran} endpoints that fit the budget passed. ${skipped.length} skipped for funds.`);
+    console.log(`Top up ${payer.slice(0, 8)}… with ~$${(fullCost).toFixed(2)} USDC to sweep all ${results.length}.`);
+  } else {
+    console.log(`All ${ran} endpoints OK.`);
   }
 }
 
