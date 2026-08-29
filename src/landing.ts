@@ -212,6 +212,22 @@ export const TOOLS: ToolListing[] = [
   },
   {
     method: "GET",
+    path: "/api/trace/{address}?hops={1-4}",
+    price: "$0.15",
+    name: "Fund flow tracing",
+    deterministic: true,
+    searchTerm: "Algorand fund flow tracing",
+    blurb: "Follow value out of an address across up to four hops and see where it actually went — " +
+      "every edge, the addresses reached, and the largest destinations. Answers \"where did this " +
+      "money go\" when you do not know the destination. No LLM.",
+    input: "An Algorand address in the URL path. Optional hops (1-4, default 2) and asset " +
+      "(\"algo\" or an ASA id) as query parameters.",
+    output: "{ origin, asset, hops, nodes: [{ address, hop, received, truncated }], edges: [{ from, to, " +
+      "hop, asset, amount, txCount, latestTxId, firstSeen, lastSeen }], topDestinations, limits, " +
+      "truncatedBy, scannedTransactions, complete }",
+  },
+  {
+    method: "GET",
     path: "/api/relationship?a={addressA}&b={addressB}",
     price: "$0.10",
     name: "Address relationship check",

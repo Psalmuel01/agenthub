@@ -34,6 +34,8 @@ import {
   InvalidAddressError,
   WalletRiskError,
 } from "./services/wallet-risk";
+import { traceFunds, InvalidTraceQueryError } from "./services/trace";
+import { ChainDataError } from "./services/chain";
 import {
   explainTransaction,
   InvalidTxIdError,
@@ -349,6 +351,32 @@ const relationshipDiscovery = declareDiscoveryExtension({
 // ---------------------------------------------------------------------------
 // Route 8: ASA metadata (price deferred — see services/asset-info.ts)
 // ---------------------------------------------------------------------------
+const traceDiscovery = declareDiscoveryExtension({
+  input: { address: "ALGORAND_ADDRESS_58_CHARS", hops: 2 },
+  inputSchema: {
+    properties: {
+      address: { type: "string", description: "Algorand address to trace value from (path parameter)" },
+      hops: { type: "integer", minimum: 1, maximum: 4, description: "How many hops to follow (query parameter, default 2)" },
+      asset: { type: "string", description: "Optional: restrict to \"algo\" or an ASA id (query parameter)" },
+    },
+    required: ["address"],
+  },
+  output: {
+    example: {
+      origin: "ALGORAND_ADDRESS_58_CHARS",
+      asset: null,
+      hops: 2,
+      nodes: [{ address: "ALGORAND_ADDRESS_58_CHARS", hop: 1, received: [{ asset: "31566704", assetName: "USDC", amount: 5.77 }], truncated: false }],
+      edges: [{ from: "ALGORAND_ADDRESS_58_CHARS", to: "ALGORAND_ADDRESS_58_CHARS", hop: 1, asset: "31566704", assetName: "USDC", amount: 5.77, amountRaw: "5770000", txCount: 12, latestTxId: "ALGORAND_TRANSACTION_ID_52_CHARS", firstSeen: "2026-08-09T17:29:27.000Z", lastSeen: "2026-08-28T05:46:33.000Z" }],
+      topDestinations: [{ address: "ALGORAND_ADDRESS_58_CHARS", asset: "31566704", assetName: "USDC", amount: 10, hop: 2 }],
+      limits: { maxHops: 4, maxBranchPerAddress: 5, maxScanPerAddress: 300, maxNodes: 40 },
+      truncatedBy: ["maxBranchPerAddress"],
+      scannedTransactions: 511,
+      complete: false,
+    },
+  },
+});
+
 const assetInfoDiscovery = declareDiscoveryExtension({
   input: { asaId: "31566704" },
   inputSchema: {
@@ -572,6 +600,20 @@ const routes = {
       "address due diligence before transacting. No API key or account — pay $0.10 per call in USDC.",
     extensions: walletRiskDiscovery,
   },
+  "GET /api/trace/[address]": {
+    accepts: usdcPrice("0.15"), // $0.15
+    description:
+      "Algorand fund flow tracing and money movement analysis: given an address, follows value " +
+      "outward across up to four hops and returns the graph of where it went — every edge with its " +
+      "asset, total amount, transaction count and time range, the addresses reached at each hop, " +
+      "and the destinations that received the most. Optionally restricted to one asset. Answers " +
+      "\"where did this money go\" when the destination is unknown, which address-pair checks cannot. " +
+      "Follows the largest flows first and reports every limit it hit, so a partial trace is never " +
+      "mistaken for a complete one. Deterministic Algorand indexer data, no LLM. Useful for theft " +
+      "tracing, counterparty screening, and exchange attribution. No API key or account — pay $0.15 " +
+      "per call in USDC.",
+    extensions: traceDiscovery,
+  }
 };
 
 // ---------------------------------------------------------------------------
@@ -617,6 +659,42 @@ const PRE_PAYMENT_CHECKS: [string, RegExp, ShapeCheck][] = [
       ALGORAND_ADDRESS.test(req.params[0] ?? "")
         ? null
         : "path parameter must be a 58-character Algorand address",
+  ],
+  [
+    "GET",
+    /^\/api\/trace\/(.*)$/,
+    (req) => {
+      if (!ALGORAND_ADDRESS.test(req.params[0] ?? "")) {
+        return "path parameter must be a 58-character Algorand address";
+      }
+      const hops = req.query.hops;
+      if (hops !== undefined && !/^[1-4]$/.test(String(hops))) {
+        return "hops must be an integer from 1 to 4";
+      }
+      const asset = req.query.asset;
+      if (asset !== undefined && String(asset) !== "algo" && !ASA_ID.test(String(asset))) {
+        return 'asset must be "algo" or a numeric ASA id';
+      }
+      return null;
+    },
+  ],
+  [
+    "GET",
+    /^\/api\/trace\/(.*)$/,
+    (req) => {
+      if (!ALGORAND_ADDRESS.test(req.params[0] ?? "")) {
+        return "path parameter must be a 58-character Algorand address";
+      }
+      const hops = req.query.hops;
+      if (hops !== undefined && !/^[1-4]$/.test(String(hops))) {
+        return "hops must be an integer from 1 to 4";
+      }
+      const asset = req.query.asset;
+      if (asset !== undefined && String(asset) !== "algo" && !ASA_ID.test(String(asset))) {
+        return 'asset must be "algo" or a numeric ASA id';
+      }
+      return null;
+    },
   ],
   [
     "GET",
@@ -790,6 +868,25 @@ app.get("/api/wallet-risk/:address", async (req, res) => {
     }
     if (err instanceof WalletRiskError) {
       return res.status(502).json({ error: "Wallet risk analysis failed", detail: err.message });
+    }
+    throw err;
+  }
+});
+
+app.get("/api/trace/:address", async (req, res) => {
+  try {
+    const result = await traceFunds({
+      address: req.params.address,
+      hops: req.query.hops === undefined ? undefined : Number(req.query.hops),
+      asset: req.query.asset === undefined ? null : String(req.query.asset),
+    });
+    res.json(result);
+  } catch (err) {
+    if (err instanceof InvalidTraceQueryError) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err instanceof ChainDataError) {
+      return res.status(502).json({ error: "Trace failed", detail: err.message });
     }
     throw err;
   }
