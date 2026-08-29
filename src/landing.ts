@@ -212,6 +212,20 @@ export const TOOLS: ToolListing[] = [
   },
   {
     method: "GET",
+    path: "/api/cluster/{address}",
+    price: "$0.20",
+    name: "Wallet clustering",
+    deterministic: true,
+    searchTerm: "Algorand wallet clustering",
+    blurb: "Find addresses whose behaviour is consistent with the same owner — shared funder, " +
+      "overlapping counterparties, direct transfers — each scored with the evidence behind it. " +
+      "Heuristic leads to verify, not proof of ownership. No LLM.",
+    input: "An Algorand address in the URL path.",
+    output: "{ address, candidates: [{ address, score, confidence, signals: [{ signal, points, detail, " +
+      "evidence }] }], target, limits, truncatedBy, complete, disclaimer }",
+  },
+  {
+    method: "GET",
     path: "/api/trace/{address}?hops={1-4}",
     price: "$0.15",
     name: "Fund flow tracing",

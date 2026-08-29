@@ -35,6 +35,7 @@ import {
   WalletRiskError,
 } from "./services/wallet-risk";
 import { traceFunds, InvalidTraceQueryError } from "./services/trace";
+import { clusterAddress, InvalidClusterQueryError } from "./services/cluster";
 import { ChainDataError } from "./services/chain";
 import {
   explainTransaction,
@@ -377,6 +378,32 @@ const traceDiscovery = declareDiscoveryExtension({
   },
 });
 
+const clusterDiscovery = declareDiscoveryExtension({
+  input: { address: "ALGORAND_ADDRESS_58_CHARS" },
+  inputSchema: {
+    properties: {
+      address: { type: "string", description: "Algorand address to find related wallets for (path parameter)" },
+    },
+    required: ["address"],
+  },
+  output: {
+    example: {
+      address: "ALGORAND_ADDRESS_58_CHARS",
+      candidates: [{
+        address: "ALGORAND_ADDRESS_58_CHARS",
+        score: 62,
+        confidence: "high",
+        signals: [{ signal: "shared-funder", points: 32, detail: "Both accounts were first funded by the same address, which has funded 7 addresses in the scanned window", evidence: ["ALGORAND_ADDRESS_58_CHARS"] }],
+      }],
+      target: { firstActivity: "2026-08-09T17:29:27.000Z", firstFunder: "ALGORAND_ADDRESS_58_CHARS", counterpartyCount: 7, scannedTransactions: 300 },
+      limits: { maxScanPerAddress: 300, maxCandidates: 25, minScore: 30 },
+      truncatedBy: ["maxScanPerAddress"],
+      complete: false,
+      disclaimer: "Heuristic attribution from public on-chain behaviour, not proof of ownership.",
+    },
+  },
+});
+
 const assetInfoDiscovery = declareDiscoveryExtension({
   input: { asaId: "31566704" },
   inputSchema: {
@@ -613,6 +640,20 @@ const routes = {
       "tracing, counterparty screening, and exchange attribution. No API key or account — pay $0.15 " +
       "per call in USDC.",
     extensions: traceDiscovery,
+  },
+  "GET /api/cluster/[address]": {
+    accepts: usdcPrice("0.20"), // $0.20
+    description:
+      "Algorand wallet clustering and common-ownership attribution: given an address, finds other " +
+      "addresses whose on-chain behaviour is consistent with the same owner — shared first funder, " +
+      "overlapping counterparties, direct transfers, and correlated first activity — each scored 0-100 " +
+      "with the specific transactions and addresses behind it. Funder signals are weighted down by how " +
+      "many addresses that funder has paid, so sharing an exchange counts for little. Heuristic " +
+      "attribution, not proof of ownership: every result ships with its evidence and a disclaimer, " +
+      "because these are leads to verify rather than proof of control. Deterministic Algorand indexer " +
+      "data, no LLM. Useful for investigation, sybil detection, and counterparty due diligence. No API " +
+      "key or account — pay $0.20 per call in USDC.",
+    extensions: clusterDiscovery,
   }
 };
 
@@ -655,6 +696,14 @@ const PRE_PAYMENT_CHECKS: [string, RegExp, ShapeCheck][] = [
   [
     "GET",
     /^\/api\/wallet-risk\/(.*)$/,
+    (req) =>
+      ALGORAND_ADDRESS.test(req.params[0] ?? "")
+        ? null
+        : "path parameter must be a 58-character Algorand address",
+  ],
+  [
+    "GET",
+    /^\/api\/cluster\/(.*)$/,
     (req) =>
       ALGORAND_ADDRESS.test(req.params[0] ?? "")
         ? null
@@ -887,6 +936,21 @@ app.get("/api/trace/:address", async (req, res) => {
     }
     if (err instanceof ChainDataError) {
       return res.status(502).json({ error: "Trace failed", detail: err.message });
+    }
+    throw err;
+  }
+});
+
+app.get("/api/cluster/:address", async (req, res) => {
+  try {
+    const result = await clusterAddress(req.params.address);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof InvalidClusterQueryError) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err instanceof ChainDataError) {
+      return res.status(502).json({ error: "Cluster analysis failed", detail: err.message });
     }
     throw err;
   }
