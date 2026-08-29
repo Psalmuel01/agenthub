@@ -54,6 +54,8 @@ export const SAMPLES = {
   counterparty: "MUVW2RFKNVHWX4CNF6YIYNMX5EHK7TW3ERUDPDAQVFG4IRH5CDQINUQVVM",
   txid: "U6RNSGSAWJ3AINV4WGKGELVJC5SGHN2MS3HGJEQTOBOHKHMX7HYA",
   asaId: "31566704",
+  /** Tinyman v2 AMM: a real, live, well-known application. */
+  appId: "1002541853",
 } as const;
 
 /**
@@ -70,7 +72,8 @@ function substitutePath(path: string): string {
   return path
     .replace("[address]", SAMPLES.address)
     .replace("[txid]", SAMPLES.txid)
-    .replace("[asaId]", SAMPLES.asaId);
+    .replace("[asaId]", SAMPLES.asaId)
+    .replace("[appId]", SAMPLES.appId);
 }
 
 /** Derive the --only/UI id from a path: "/api/asset-risk/[asaId]" -> "asset-risk". */

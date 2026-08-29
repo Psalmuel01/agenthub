@@ -212,6 +212,33 @@ export const TOOLS: ToolListing[] = [
   },
   {
     method: "GET",
+    path: "/api/app/{appId}",
+    price: "$0.10",
+    name: "Smart contract metadata",
+    deterministic: true,
+    searchTerm: "Algorand smart contract lookup",
+    blurb: "Creator, state schemas, decoded global state, program sizes and whether the contract " +
+      "still exists. Every DeFi protocol, DAO and NFT mint on Algorand is an application. No LLM.",
+    input: "An Algorand application id in the URL path.",
+    output: "{ appId, creator, deleted, createdAtRound, approvalProgramBytes, clearStateProgramBytes, " +
+      "globalStateSchema, localStateSchema, globalState }",
+  },
+  {
+    method: "GET",
+    path: "/api/app-risk/{appId}",
+    price: "$0.18",
+    name: "Smart contract risk screen",
+    deterministic: true,
+    searchTerm: "Algorand smart contract risk",
+    blurb: "Disassembles the approval program to find out whether a contract can be upgraded or " +
+      "deleted out from under you, which privileged roles it names, and what that adds up to as a " +
+      "0-100 risk score with plain findings. No LLM.",
+    input: "An Algorand application id in the URL path.",
+    output: "{ appId, creator, riskScore, riskLevel, signals: { upgradeable, deletable, deleted, " +
+      "privilegedRoles, programAnalysed }, findings, disclaimer }",
+  },
+  {
+    method: "GET",
     path: "/api/cluster/{address}",
     price: "$0.20",
     name: "Wallet clustering",

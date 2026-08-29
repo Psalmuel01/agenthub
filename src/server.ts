@@ -36,6 +36,7 @@ import {
 } from "./services/wallet-risk";
 import { traceFunds, InvalidTraceQueryError } from "./services/trace";
 import { clusterAddress, InvalidClusterQueryError } from "./services/cluster";
+import { getAppInfo, scoreApp, InvalidAppIdError, AppNotFoundError } from "./services/app-info";
 import { ChainDataError } from "./services/chain";
 import {
   explainTransaction,
@@ -404,6 +405,46 @@ const clusterDiscovery = declareDiscoveryExtension({
   },
 });
 
+const appInfoDiscovery = declareDiscoveryExtension({
+  input: { appId: "1002541853" },
+  inputSchema: {
+    properties: { appId: { type: "string", description: "Algorand application id (path parameter)" } },
+    required: ["appId"],
+  },
+  output: {
+    example: {
+      appId: "1002541853", creator: "ALGORAND_ADDRESS_58_CHARS", deleted: false,
+      createdAtRound: 26051045, approvalProgramBytes: 7731, clearStateProgramBytes: 41,
+      globalStateSchema: { numUint: 0, numByteSlice: 3 },
+      localStateSchema: { numUint: 12, numByteSlice: 2 },
+      globalState: [{ key: "fee_manager", type: "bytes", value: "BASE64" }],
+      appAddress: null,
+    },
+  },
+});
+
+const appRiskDiscovery = declareDiscoveryExtension({
+  input: { appId: "1002541853" },
+  inputSchema: {
+    properties: { appId: { type: "string", description: "Algorand application id (path parameter)" } },
+    required: ["appId"],
+  },
+  output: {
+    example: {
+      appId: "1002541853", creator: "ALGORAND_ADDRESS_58_CHARS",
+      riskScore: 70, riskLevel: "high",
+      signals: {
+        upgradeable: true, deletable: true, deleted: false,
+        privilegedRoles: ["fee_manager", "fee_setter", "fee_collector"],
+        approvalProgramBytes: 7731, globalStateKeys: 3, createdAtRound: 26051045,
+        programAnalysed: true,
+      },
+      findings: ["Upgradeable: the approval program handles UpdateApplication..."],
+      disclaimer: "Automated analysis of on-chain contract structure, not a security audit.",
+    },
+  },
+});
+
 const assetInfoDiscovery = declareDiscoveryExtension({
   input: { asaId: "31566704" },
   inputSchema: {
@@ -654,6 +695,29 @@ const routes = {
       "data, no LLM. Useful for investigation, sybil detection, and counterparty due diligence. No API " +
       "key or account — pay $0.20 per call in USDC.",
     extensions: clusterDiscovery,
+  },
+  "GET /api/app/[appId]": {
+    accepts: usdcPrice("0.10"), // $0.10
+    description:
+      "Algorand smart contract metadata lookup: given an application id, returns the creator, whether " +
+      "the contract still exists, the round it was created at, approval and clear-state program sizes, " +
+      "the global and local state schemas, and the decoded global state keys and values. Every DeFi " +
+      "protocol, DAO, NFT mint and staking pool on Algorand is an application, so this is the first " +
+      "thing to check before interacting with one. Deterministic Algorand indexer data, no LLM. No API " +
+      "key or account — pay $0.10 per call in USDC.",
+    extensions: appInfoDiscovery,
+  },
+  "GET /api/app-risk/[appId]": {
+    accepts: usdcPrice("0.18"), // $0.18
+    description:
+      "Algorand smart contract risk screening and upgradeability check: given an application id, " +
+      "disassembles the approval program and reports whether the contract can be upgraded (its logic " +
+      "replaced by the key holder) or deleted (removed entirely, stranding anything it custodies), " +
+      "which privileged role keys its global state names, and an explainable 0-100 risk score with " +
+      "plain-language findings. Answers the question an agent has before handing funds to a contract, " +
+      "which token screening cannot. Deterministic analysis of real bytecode, no LLM. No API key or " +
+      "account — pay $0.18 per call in USDC.",
+    extensions: appRiskDiscovery,
   }
 };
 
@@ -700,6 +764,16 @@ const PRE_PAYMENT_CHECKS: [string, RegExp, ShapeCheck][] = [
       ALGORAND_ADDRESS.test(req.params[0] ?? "")
         ? null
         : "path parameter must be a 58-character Algorand address",
+  ],
+  [
+    "GET",
+    /^\/api\/app\/(.*)$/,
+    (req) => (ASA_ID.test(req.params[0] ?? "") ? null : "path parameter must be a numeric application id"),
+  ],
+  [
+    "GET",
+    /^\/api\/app-risk\/(.*)$/,
+    (req) => (ASA_ID.test(req.params[0] ?? "") ? null : "path parameter must be a numeric application id"),
   ],
   [
     "GET",
@@ -951,6 +1025,32 @@ app.get("/api/cluster/:address", async (req, res) => {
     }
     if (err instanceof ChainDataError) {
       return res.status(502).json({ error: "Cluster analysis failed", detail: err.message });
+    }
+    throw err;
+  }
+});
+
+app.get("/api/app/:appId", async (req, res) => {
+  try {
+    res.json(await getAppInfo(req.params.appId));
+  } catch (err) {
+    if (err instanceof InvalidAppIdError) return res.status(400).json({ error: err.message });
+    if (err instanceof AppNotFoundError) return res.status(404).json({ error: err.message });
+    if (err instanceof ChainDataError) {
+      return res.status(502).json({ error: "Application lookup failed", detail: err.message });
+    }
+    throw err;
+  }
+});
+
+app.get("/api/app-risk/:appId", async (req, res) => {
+  try {
+    res.json(await scoreApp(req.params.appId));
+  } catch (err) {
+    if (err instanceof InvalidAppIdError) return res.status(400).json({ error: err.message });
+    if (err instanceof AppNotFoundError) return res.status(404).json({ error: err.message });
+    if (err instanceof ChainDataError) {
+      return res.status(502).json({ error: "Application risk analysis failed", detail: err.message });
     }
     throw err;
   }
