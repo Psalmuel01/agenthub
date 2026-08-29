@@ -149,7 +149,7 @@ export const TOOLS: ToolListing[] = [
   {
     method: "GET",
     path: "/api/wallet-risk/{address}",
-    price: "$0.03",
+    price: "$0.10",
     name: "Algorand wallet risk scoring",
     deterministic: true,
     searchTerm: "Algorand wallet risk scoring",
@@ -165,7 +165,7 @@ export const TOOLS: ToolListing[] = [
   {
     method: "GET",
     path: "/api/explain-tx/{txid}",
-    price: "$0.03",
+    price: "$0.08",
     name: "Algorand transaction explainer",
     deterministic: true,
     searchTerm: "transaction decoding",
@@ -181,7 +181,7 @@ export const TOOLS: ToolListing[] = [
   {
     method: "GET",
     path: "/api/asset-risk/{asaId}",
-    price: "$0.03",
+    price: "$0.10",
     name: "ASA risk / scam screen",
     deterministic: true,
     searchTerm: "Algorand token risk screening",
@@ -213,7 +213,7 @@ export const TOOLS: ToolListing[] = [
   {
     method: "GET",
     path: "/api/relationship?a={addressA}&b={addressB}",
-    price: "$0.03",
+    price: "$0.10",
     name: "Address relationship check",
     deterministic: true,
     searchTerm: "address relationship history",
@@ -228,7 +228,7 @@ export const TOOLS: ToolListing[] = [
   {
     method: "GET",
     path: "/api/asset/{asaId}",
-    price: "$0.02",
+    price: "$0.05",
     name: "ASA metadata & supply",
     deterministic: true,
     searchTerm: "Algorand token metadata",
@@ -244,7 +244,7 @@ export const TOOLS: ToolListing[] = [
   {
     method: "POST",
     path: "/api/verify-payment",
-    price: "$0.02",
+    price: "$0.06",
     name: "Payment verification",
     deterministic: true,
     searchTerm: "payment verification",
@@ -262,7 +262,7 @@ export const TOOLS: ToolListing[] = [
   {
     method: "POST",
     path: "/api/code-review",
-    price: "$0.08",
+    price: "$0.15",
     name: "GitHub pull request review",
     searchTerm: "GitHub code review",
     blurb:
@@ -276,7 +276,7 @@ export const TOOLS: ToolListing[] = [
   {
     method: "POST",
     path: "/api/nl-to-sql",
-    price: "$0.03",
+    price: "$0.08",
     name: "Natural language to SQL",
     searchTerm: "natural language to SQL",
     blurb:
@@ -290,7 +290,7 @@ export const TOOLS: ToolListing[] = [
   {
     method: "POST",
     path: "/api/inference",
-    price: "$0.02",
+    price: "$0.05",
     name: "LLM text generation",
     searchTerm: "LLM text generation",
     blurb:
@@ -301,7 +301,7 @@ export const TOOLS: ToolListing[] = [
   {
     method: "POST",
     path: "/api/summarize",
-    price: "$0.03",
+    price: "$0.10",
     name: "Text summarization",
     searchTerm: "text summarization",
     blurb:

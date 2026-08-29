@@ -456,27 +456,27 @@ const nlToSqlDiscovery = declareDiscoveryExtension({
 
 const routes = {
   "POST /api/inference": {
-    accepts: usdcPrice("0.02"), // $0.02
+    accepts: usdcPrice("0.05"), // $0.05
     description:
       "LLM text generation and completion: send a natural-language prompt (question, instruction, " +
       "draft, code, or classification task) and receive generated text back. No API key, no account, " +
-      "no subscription — pay $0.02 per call in USDC. Powered by Claude Haiku 4.5. Returns the " +
+      "no subscription — pay $0.05 per call in USDC. Powered by Claude Haiku 4.5. Returns the " +
       "generated text plus a truncated flag.",
     extensions: inferenceDiscovery,
   },
   "POST /api/summarize": {
-    accepts: usdcPrice("0.03"), // $0.03
+    accepts: usdcPrice("0.10"), // $0.10
     description:
       "Text summarization and condensation: send raw text up to 50,000 characters (article, " +
       "document, transcript, report, or thread) and receive a concise summary preserving key facts. " +
       "Optional maxWords for target length and style (concise, bullets, or detailed). No API key or " +
-      "account — pay $0.03 per call in USDC. Returns the summary plus a truncated flag.",
+      "account — pay $0.10 per call in USDC. Returns the summary plus a truncated flag.",
     extensions: summarizeDiscovery,
   },
   // Route-key path params use the middleware's [bracket] syntax (NOT Express ":param").
   // The Express handler below still registers the route as "/api/wallet-risk/:address".
   "POST /api/nl-to-sql": {
-    accepts: usdcPrice("0.03"), // $0.03
+    accepts: usdcPrice("0.08"), // $0.08
     description:
       "Natural language to SQL: send a plain-language question plus your table schema and " +
       "receive a ready-to-run SQL query. Supports postgres, mysql, sqlite, sqlserver, " +
@@ -486,22 +486,22 @@ const routes = {
       "anything is unrecognised — so it is a gate, not a proof; run untrusted SQL through " +
       "a read-only connection. This endpoint GENERATES SQL ONLY — it never " +
       "connects to a database and never executes the query. Powered by Claude Haiku 4.5. " +
-      "No API key or account — pay $0.03 per call in USDC.",
+      "No API key or account — pay $0.08 per call in USDC.",
     extensions: nlToSqlDiscovery,
   },
   "POST /api/code-review": {
-    accepts: usdcPrice("0.08"), // $0.08
+    accepts: usdcPrice("0.15"), // $0.15
     description:
       "GitHub pull request code review: give a repository owner, name, and PR number and " +
       "receive a structured review of the diff — concrete correctness bugs, security issues, " +
       "and error-handling gaps, each with the file and line where possible. Fetches the diff " +
       "from GitHub for you and returns PR metadata (title, files changed, additions, " +
       "deletions) alongside the review. Optional focus parameter to steer the review. Powered " +
-      "by Claude Haiku 4.5. No API key or account — pay $0.08 per call in USDC.",
+      "by Claude Haiku 4.5. No API key or account — pay $0.15 per call in USDC.",
     extensions: codeReviewDiscovery,
   },
   "POST /api/verify-payment": {
-    accepts: usdcPrice("0.02"), // $0.02
+    accepts: usdcPrice("0.06"), // $0.06
     description:
       "Algorand payment verification and transaction assertion: given a transaction id plus " +
       "what you expected (sender, receiver, asset, amount), returns a pass/fail verdict with " +
@@ -509,11 +509,11 @@ const routes = {
       "transactions, so payments routed through smart contracts and DEX swaps still verify. " +
       "Supports an amount tolerance. Deterministic, no LLM. Built for autonomous agents that " +
       "need to confirm a payment landed exactly as intended before acting on it. No API key " +
-      "or account — pay $0.02 per call in USDC.",
+      "or account — pay $0.06 per call in USDC.",
     extensions: verifyPaymentDiscovery,
   },
   "GET /api/asset-risk/[asaId]": {
-    accepts: usdcPrice("0.03"), // $0.03
+    accepts: usdcPrice("0.10"), // $0.10
     description:
       "Algorand ASA risk scoring and scam token screening: given an Algorand Standard Asset " +
       "id, returns an explainable 0-100 risk score, a risk level, and the on-chain signals " +
@@ -521,11 +521,11 @@ const routes = {
       "whether the manager can still reconfigure supply, largest-holder concentration as a " +
       "share of circulating supply, and the creator account's age. Deterministic analysis of " +
       "real Algorand indexer data, no LLM. Run it before accepting, holding, or swapping an " +
-      "unfamiliar token. No API key or account — pay $0.03 per call in USDC.",
+      "unfamiliar token. No API key or account — pay $0.10 per call in USDC.",
     extensions: assetRiskDiscovery,
   },
   "GET /api/relationship": {
-    accepts: usdcPrice("0.03"), // $0.03
+    accepts: usdcPrice("0.10"), // $0.10
     description:
       "Algorand address relationship and counterparty history: given two addresses as query " +
       "parameters a and b, returns whether they have transacted, how many transactions " +
@@ -533,11 +533,11 @@ const routes = {
       "interaction timestamps. Matches through inner transactions, so activity routed via " +
       "smart contracts is counted. Deterministic analysis of real Algorand indexer data, no " +
       "LLM. Useful for verifying a claimed relationship or reviewing counterparty history " +
-      "before a deal. No API key or account — pay $0.03 per call in USDC.",
+      "before a deal. No API key or account — pay $0.10 per call in USDC.",
     extensions: relationshipDiscovery,
   },
   "GET /api/asset/[asaId]": {
-    accepts: usdcPrice("0.02"), // $0.02
+    accepts: usdcPrice("0.05"), // $0.05
     description:
       "Algorand ASA metadata and supply lookup: given an Algorand Standard Asset id, returns " +
       "the asset name, unit name, decimals, declared total supply, real circulating supply " +
@@ -545,11 +545,11 @@ const routes = {
       "been destroyed, and its configuration flags — manager, freeze, clawback, reserve, and " +
       "default-frozen. Deterministic Algorand indexer data, no LLM. Use it to identify an " +
       "unfamiliar token before accepting, holding, or swapping it. No API key or account — " +
-      "pay $0.02 per call in USDC.",
+      "pay $0.05 per call in USDC.",
     extensions: assetInfoDiscovery,
   },
   "GET /api/explain-tx/[txid]": {
-    accepts: usdcPrice("0.03"), // $0.03
+    accepts: usdcPrice("0.08"), // $0.08
     description:
       "Algorand transaction explainer and decoder: given a transaction id, returns a " +
       "plain-language summary of what the transaction actually did, plus structured detail — " +
@@ -558,18 +558,18 @@ const routes = {
       "round, timestamp, and decoded note. Decodes DEX swaps and smart contract calls by " +
       "walking inner transactions. Deterministic decoding of real Algorand indexer data, no " +
       "LLM. Useful for agent transaction auditing, payment verification, and explaining " +
-      "on-chain activity to users. No API key or account — pay $0.03 per call in USDC.",
+      "on-chain activity to users. No API key or account — pay $0.08 per call in USDC.",
     extensions: explainTxDiscovery,
   },
   "GET /api/wallet-risk/[address]": {
-    accepts: usdcPrice("0.03"), // $0.03
+    accepts: usdcPrice("0.10"), // $0.10
     description:
       "Algorand wallet risk scoring and address reputation: given an Algorand address, returns an " +
       "explainable 0-100 risk score, a risk level (low, medium, high), and the on-chain signals " +
       "behind it — account age in days, transaction count, ALGO balance, USDC opt-in status, " +
       "distinct counterparty count, and rekey history. Deterministic analysis of real Algorand " +
       "indexer data, no LLM. Useful for agent counterparty checks, fraud screening, and KYC-style " +
-      "address due diligence before transacting. No API key or account — pay $0.03 per call in USDC.",
+      "address due diligence before transacting. No API key or account — pay $0.10 per call in USDC.",
     extensions: walletRiskDiscovery,
   },
 };
