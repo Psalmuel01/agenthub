@@ -57,6 +57,21 @@ let cancelled = false;   // user pressed Stop
 const results = new Map();
 
 /**
+ * Algorand's minimum balance requirement, in ALGO.
+ *
+ * Consensus-enforced, not a fee and not ours: an account must hold 0.1, plus
+ * 0.1 for every asset it opts into. The ALGO is locked while the position is
+ * open and released if it is closed. It is why a wallet holding only USDC
+ * cannot transact, and why the facilitator sponsoring fees does not remove the
+ * need for some ALGO.
+ */
+const MBR_ACCOUNT = 0.1;
+const MBR_PER_ASSET = 0.1;
+
+/** Enough for the account, the USDC opt-in, and the opt-in transaction itself. */
+const MIN_ALGO_TO_START = 0.25;
+
+/**
  * Adapt a Pera wallet to the signer interface the x402 client expects.
  *
  * The two disagree in three ways, and getting any of them wrong produces
@@ -272,17 +287,38 @@ function renderWallet() {
     "<div><b>USDC</b>" + balances.usdc.toFixed(6) + "</div>" +
     "<div><b>Affordable</b>" + affordable().length + " of " + catalog.filter(isPaid).length + " paid</div>";
 
+  // What actually blocks a payment, in the order a new wallet hits it.
+  //
+  // ALGO is NOT spent on fees here — the facilitator sponsors them. It is
+  // needed for Algorand's minimum balance requirement: 0.1 to exist plus 0.1
+  // per asset opted into, locked rather than spent. That is the wall a brand
+  // new wallet hits, and warning about "fees" sent people looking for the
+  // wrong problem.
   const warn = $("wallet-warn");
   if (!balances.exists) {
     warn.className = "small err";
-    warn.textContent = "This account does not exist on chain — it has never been funded.";
+    warn.innerHTML =
+      "<strong>This account has never been funded.</strong><br>" +
+      "Algorand requires " + MBR_ACCOUNT.toFixed(1) + " ALGO to hold an account and another " +
+      MBR_PER_ASSET.toFixed(1) + " to hold USDC — locked, not spent. Send at least " +
+      MIN_ALGO_TO_START.toFixed(2) + " ALGO here, then opt in to USDC.";
   } else if (!balances.optedIn) {
+    const canOptIn = balances.algo >= MBR_ACCOUNT + MBR_PER_ASSET;
     warn.className = "small err";
-    warn.innerHTML = "Not opted in to USDC (ASA " + CONFIG.usdcAsaId +
-      "). Opt in from your wallet before paying.";
-  } else if (balances.algo < 0.05) {
-    warn.className = "small warn";
-    warn.textContent = "ALGO balance is low — payments may fail on fees.";
+    warn.innerHTML = canOptIn
+      ? "<strong>Not opted in to USDC.</strong><br>" +
+        "Opt in to ASA " + CONFIG.usdcAsaId + " from your wallet, then send USDC here to start paying."
+      : "<strong>Not opted in to USDC, and not enough ALGO to opt in.</strong><br>" +
+        "Opting in raises the locked minimum to " + (MBR_ACCOUNT + MBR_PER_ASSET).toFixed(1) +
+        " ALGO; this account holds " + balances.algo.toFixed(3) + ". Add ALGO first, then opt in.";
+  } else if (balances.algo < MBR_ACCOUNT + MBR_PER_ASSET) {
+    // Below the requirement its own opt-ins imply: the network will reject
+    // anything that reduces the balance further.
+    warn.className = "small err";
+    warn.textContent =
+      "ALGO balance (" + balances.algo.toFixed(3) + ") is below the " +
+      (MBR_ACCOUNT + MBR_PER_ASSET).toFixed(1) + " minimum this account must keep locked. " +
+      "Add ALGO — payments cannot be submitted below it.";
   } else if (balances.usdc < cheapestPrice()) {
     warn.className = "small warn";
     warn.textContent = "Not enough USDC for the cheapest endpoint ($" +

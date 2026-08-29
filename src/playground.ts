@@ -168,6 +168,13 @@ export function renderPlayground(opts: {
     for these calls — bridge it to Algorand first (Circle CCTP).
   </p>
 
+  <p class="note">
+    <strong>What your wallet needs.</strong> USDC for the calls, and about 0.25 ALGO —
+    Algorand locks 0.1 to hold an account and 0.1 more to hold USDC. That ALGO is locked,
+    not spent: network fees for these payments are covered by the facilitator, so your
+    ALGO balance does not go down as you call endpoints.
+  </p>
+
   <div class="panel" id="wallet-panel">
     <div class="row spread">
       <div class="grow">
