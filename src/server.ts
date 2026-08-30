@@ -83,6 +83,38 @@ app.set("trust proxy", true);
 
 app.use(express.json({ limit: "2mb" }));
 
+/**
+ * CORS, so a browser on another origin can actually complete a payment.
+ *
+ * x402 is a header protocol: the challenge arrives in `payment-required` and
+ * the settlement receipt in `payment-response`. A browser cannot read either
+ * cross-origin unless they are named in Access-Control-Expose-Headers — the
+ * fetch would succeed while the headers came back empty, so the client could
+ * see a 402 but never the quote inside it, and paying would be impossible.
+ * Requests likewise have to be allowed to carry `PAYMENT-SIGNATURE`.
+ *
+ * Open to any origin deliberately: these are public, pay-per-call endpoints
+ * with no cookies, no sessions, and no ambient authority to steal. Payment
+ * itself is the authorization, and it is carried explicitly per request.
+ */
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, PAYMENT-SIGNATURE, payment-signature",
+  );
+  res.setHeader(
+    "Access-Control-Expose-Headers",
+    "payment-required, payment-response, PAYMENT-REQUIRED, PAYMENT-RESPONSE",
+  );
+  res.setHeader("Access-Control-Max-Age", "86400");
+
+  // Preflight never reaches the payment middleware; answer it here.
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
+
 // ---------------------------------------------------------------------------
 // One facilitator client, one resource server, for the whole app.
 // This is what makes it a Composite Entry: every route below shares PAY_TO,
@@ -904,6 +936,16 @@ const PRE_PAYMENT_CHECKS: [string, RegExp, ShapeCheck][] = [
 ];
 
 app.use((req, res, next) => {
+  // Only vet the request when payment was actually attempted.
+  //
+  // These checks exist to stop a PAYING caller being charged for input that was
+  // never going to work. Applied to an unpaid request they do the opposite of
+  // what x402 needs: an agent, crawler, or conformance probe that pokes an
+  // endpoint with no body got a 400 and never learned the endpoint was paid at
+  // all, because 400 was answered before the 402 challenge was ever emitted.
+  // The challenge is how a resource advertises itself, so it has to come first.
+  if (!req.headers["payment-signature"]) return next();
+
   for (const [method, pattern, check] of PRE_PAYMENT_CHECKS) {
     if (req.method !== method) continue;
     const match = pattern.exec(req.path);
