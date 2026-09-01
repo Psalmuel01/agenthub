@@ -869,10 +869,14 @@ async function runExhaust() {
           cheapestPrice().toFixed(2) + ").");
     return;
   }
+  // Say the amount and the wallet before anything is signed. The button no
+  // longer leads with the outcome, so the confirm has to carry it plainly.
   if (!confirm(
-    "This will spend up to $" + budget.toFixed(2) + " USDC until the balance cannot cover " +
-    "another endpoint.\n\nPayments are approved in batches of " + BATCH_SIZE +
-    ", so expect one wallet prompt per batch.\n\nContinue?"
+    "Load test\n\nThis will spend up to $" + budget.toFixed(2) + " USDC from " +
+    account.slice(0, 8) + "…" + account.slice(-6) +
+    (cap === null ? " — the wallet's whole balance, as no spend limit was set." : " (your spend limit).") +
+    "\n\nPayments are approved in batches of " + BATCH_SIZE +
+    ", so expect one wallet prompt per batch.\n\nStart?"
   )) return;
 
   setRunning(true);

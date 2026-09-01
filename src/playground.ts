@@ -149,6 +149,13 @@ export function renderPlayground(opts: {
 <title>AgentHub Playground</title>
 <meta name="description" content="Run AgentHub's paid x402 endpoints from the browser with an Algorand wallet.">
 <link rel="icon" href="${FAVICON}">
+<!--
+  noindex is a deliberate choice, not a leftover: this page is shared by direct
+  link only, and is unlinked from the landing page for the same reason. If it
+  should become publicly discoverable, remove this tag AND restore the landing
+  page link — leaving one without the other is the inconsistent state.
+  Note it only asks crawlers to skip the page; anyone with the URL still loads it.
+-->
 <meta name="robots" content="noindex">
 <style>${STYLES}</style>
 </head>
@@ -198,15 +205,35 @@ export function renderPlayground(opts: {
     <div class="row spread">
       <div class="row">
         <button id="run-all" class="secondary" disabled>Run all affordable</button>
-        <button id="run-exhaust" class="secondary" disabled>Exhaust balance</button>
-        <div class="row">
-          <label class="tiny muted" for="cap">cap&nbsp;$</label>
-          <input id="cap" type="number" min="0" step="0.01" placeholder="none"
-                 style="width:6.5rem" inputmode="decimal">
-        </div>
       </div>
       <button id="stop" class="secondary hide">Stop</button>
     </div>
+
+    <!--
+      The soak test lives behind a disclosure on purpose.
+      A button whose job is to spend a connected wallet down should not sit at
+      the same level as the ordinary one, and should not lead with the outcome.
+      Someone evaluating the project sees a calm default; the load test is still
+      one click away for anyone who wants it, with the cost stated before the
+      button rather than after.
+    -->
+    <details id="soak" style="margin-top:.9rem">
+      <summary class="small muted" style="cursor:pointer">Load testing</summary>
+      <div style="margin-top:.7rem">
+        <p class="tiny muted" style="margin:0 0 .6rem">
+          Calls endpoints at random, repeatedly, to exercise the paid path under
+          load. It keeps paying until the spend limit is reached or the balance
+          can no longer cover the cheapest endpoint — so with no limit set it
+          will spend the whole USDC balance of the connected wallet.
+        </p>
+        <div class="row">
+          <label class="tiny muted" for="cap">spend&nbsp;limit&nbsp;$</label>
+          <input id="cap" type="number" min="0" step="0.01" placeholder="no limit"
+                 style="width:7rem" inputmode="decimal">
+          <button id="run-exhaust" class="secondary small" disabled>Start load test</button>
+        </div>
+      </div>
+    </details>
     <div id="run-status" class="small hide" style="margin:.7rem 0 0; color: var(--accent); font-weight: 600"></div>
     <p class="tiny muted" style="margin:.7rem 0 0">
       Payments are signed in batches, so a run asks for one wallet approval per batch
