@@ -11,16 +11,11 @@
  *   npm run run-all -- --all         # attempt every endpoint regardless of balance
  *   npm run run-all -- --only=asset-risk,portfolio
  *
- *   npm run run-exhaust                        # sustained load test
- *   npm run run-exhaust -- --max-spend=0.10    # bounded to $0.10
+ *   npm run run-exhaust
+ *   npm run run-exhaust -- --max-spend=0.10
  *
- * LOAD TEST MODE issues repeated calls against the catalog to exercise the paid
- * request path under sustained use. Each call selects from the endpoints the
- * remaining budget covers, so the run ends when no endpoint is affordable.
- * --max-spend bounds the run; a balance above $5 additionally requires --yes.
- *
- * COSTS REAL USDC on mainnet. Use --dry to verify routes and quotes without
- * spending anything.
+ * Paid runs spend real USDC on mainnet; --dry verifies routes and quotes
+ * without spending.
  *
  * BUDGET PREFLIGHT. Before spending anything the runner reads the payer's ALGO
  * and USDC balances on chain and runs only what the balance covers, reporting
