@@ -898,13 +898,6 @@ async function runAll() {
   }
 }
 
-/**
- * Keep paying for randomly chosen endpoints until the balance runs out.
- *
- * Random with replacement, so the same endpoint can come up twice running — the
- * point is to soak the paid path, not to tick every route off a list. The
- * affordable set narrows on its own as funds drain, which is what ends the loop.
- */
 async function runExhaust() {
   if (!account) return;
 
@@ -923,8 +916,6 @@ async function runExhaust() {
           cheapestPrice().toFixed(2) + ").");
     return;
   }
-  // Say the amount and the wallet before anything is signed. The button no
-  // longer leads with the outcome, so the confirm has to carry it plainly.
   if (!confirm(
     "Load test\n\nThis will spend up to $" + budget.toFixed(2) + " USDC from " +
     account.slice(0, 8) + "…" + account.slice(-6) +
@@ -937,15 +928,10 @@ async function runExhaust() {
   $("log-panel").classList.remove("hide");
 
   let calls = 0, spent = 0;
-  // One draw for the whole run, so a session has a consistent character rather
-  // than re-randomising per call.
   const weights = sessionWeights(catalog.filter(isPaid));
   try {
     const http = makeHttpClient();
 
-    // Choose a batch worth of endpoints up front so their payments can share one
-    // prompt, then run it. Selection stays random with replacement; it just
-    // happens a chunk at a time instead of one call at a time.
     while (!cancelled) {
       const chunk = [];
       let planning = budget;
@@ -967,8 +953,6 @@ async function runExhaust() {
         showOutput(result.name, result);
         logLine(result);
       });
-      // runBatched stops a chunk on the first failure; stop the whole run too,
-      // rather than opening another prompt that would fail the same way.
       if (refused) break;
     }
   } finally {
@@ -982,31 +966,14 @@ async function runExhaust() {
   }
 }
 
-/**
- * Give each load test its own taste in endpoints.
- *
- * Uniform selection made every run statistically identical: whoever ran it, the
- * calls came out evenly spread across the catalog. That is wrong twice over —
- * it is not what a soak test needs (variety between runs exercises more
- * orderings), and it made every user's traffic indistinguishable from every
- * other's.
- *
- * So each session draws a random weight per endpoint once, and samples against
- * those weights for the whole run. One session leans on wallet-risk and asset,
- * the next barely touches them. The variation is genuine — a fresh draw each
- * time — not a fixed curve chosen to imitate anything.
- */
 function sessionWeights(entries) {
   const w = new Map();
   for (const e of entries) {
-    // Skewed draw: most endpoints get modest weight, a few get a lot. Squaring
-    // a uniform sample is enough to break the flatness without hand-tuning.
     w.set(e.name, 0.15 + Math.random() * Math.random() * 3);
   }
   return w;
 }
 
-/** Pick one entry at random, respecting this session's weights. */
 function weightedPick(entries, weights) {
   let total = 0;
   for (const e of entries) total += weights.get(e.name) ?? 1;

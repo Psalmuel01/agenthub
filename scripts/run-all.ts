@@ -11,17 +11,16 @@
  *   npm run run-all -- --all         # attempt every endpoint regardless of balance
  *   npm run run-all -- --only=asset-risk,portfolio
  *
- *   npm run run-exhaust                        # spend the wallet down
- *   npm run run-exhaust -- --max-spend=0.10    # ...but stop after $0.10
+ *   npm run run-exhaust                        # sustained load test
+ *   npm run run-exhaust -- --max-spend=0.10    # bounded to $0.10
  *
- * EXHAUST MODE picks a random affordable endpoint before every call, with
- * replacement, and keeps paying until the remaining balance cannot cover even
- * the cheapest route. It is a soak test for the paid path: the wallet ends
- * empty by design. --max-spend bounds it, and a balance over $5 requires --yes.
+ * LOAD TEST MODE issues repeated calls against the catalog to exercise the paid
+ * request path under sustained use. Each call selects from the endpoints the
+ * remaining budget covers, so the run ends when no endpoint is affordable.
+ * --max-spend bounds the run; a balance above $5 additionally requires --yes.
  *
- * COSTS REAL USDC on mainnet. The full paid pass spends ~$0.32 of the paying
- * wallet's balance. Use --dry first when you only want to confirm the routes
- * are up and the quotes are right.
+ * COSTS REAL USDC on mainnet. Use --dry to verify routes and quotes without
+ * spending anything.
  *
  * BUDGET PREFLIGHT. Before spending anything the runner reads the payer's ALGO
  * and USDC balances on chain and runs only what the balance covers, reporting
@@ -45,9 +44,7 @@ const SETTLE_GAP_MS = 2_000;
 const DRY = process.argv.includes("--dry");
 /** Skip the budget preflight and attempt every selected endpoint. */
 const IGNORE_BUDGET = process.argv.includes("--all");
-/** Keep paying for random endpoints until the balance cannot cover any. */
 const EXHAUST = process.argv.includes("--exhaust");
-/** Proceed with --exhaust on a wallet holding more than BIG_BALANCE. */
 const CONFIRMED = process.argv.includes("--yes");
 const onlyArg = process.argv.find((a) => a.startsWith("--only="));
 const maxSpendArg = process.argv.find((a) => a.startsWith("--max-spend="));
@@ -64,12 +61,6 @@ const baseUrl = (process.env.AGENTHUB_BASE_URL || "http://localhost:3000").repla
  */
 const MIN_ALGO = 0.05;
 
-/**
- * A balance above this makes --exhaust ask for --yes first.
- *
- * Exhaust is meant for the few dimes left in a test wallet. Pointed at a funded
- * one it would spend the lot, so past this line the intent has to be explicit.
- */
 const BIG_BALANCE = 5;
 
 const indexerUrl = (process.env.INDEXER_URL || "https://mainnet-idx.algonode.cloud").replace(/\/$/, "");
@@ -304,21 +295,12 @@ function planWithinBudget(calls: Call[], usdc: number): { run: Call[]; skip: Cal
   };
 }
 
-/**
- * Give each run its own taste in endpoints.
- *
- * Uniform selection made every run statistically identical — the calls came out
- * evenly spread across the catalog every time. Weighting each run separately
- * exercises more orderings and stops repeated runs from producing the same
- * shape. The weights are a fresh random draw per run, not a fixed curve.
- */
 function sessionWeights(calls: Call[]): Map<string, number> {
   const w = new Map<string, number>();
   for (const c of calls) w.set(c.name, 0.15 + Math.random() * Math.random() * 3);
   return w;
 }
 
-/** Pick one call at random, respecting this run's weights. */
 function weightedPick(calls: Call[], weights: Map<string, number>): Call {
   let total = 0;
   for (const c of calls) total += weights.get(c.name) ?? 1;
@@ -330,21 +312,6 @@ function weightedPick(calls: Call[], weights: Map<string, number>): Call {
   return calls[calls.length - 1];
 }
 
-/**
- * Spend the wallet down by paying for randomly chosen endpoints.
- *
- * Each iteration picks uniformly at random from the endpoints the *remaining*
- * budget can still afford — with replacement, so the same route can come up
- * twice running. As funds dwindle the affordable set narrows on its own until
- * nothing fits and the loop ends.
- *
- * The budget is tracked locally from advertised prices rather than re-read from
- * the indexer each pass: settlement lags the response by a few seconds, so a
- * fresh read would still show the pre-payment balance and the loop would
- * overshoot. Local accounting is exact here because every price is known up
- * front. Free routes are excluded — they cost nothing, so they can never
- * exhaust anything and would loop forever.
- */
 async function runExhaust(
   http: x402HTTPClient,
   calls: Call[],
@@ -361,9 +328,6 @@ async function runExhaust(
   while (true) {
     const affordable = paid.filter((c) => Math.round(budget * 1e6) >= Math.round(c.price * 1e6));
     if (affordable.length === 0) {
-      // `budget` starts capped at --max-spend when one is set, so this single
-      // check ends the loop for both reasons. Checking spend after paying would
-      // let the last call cross the cap by up to its own price.
       console.log(
         MAX_SPEND !== null
           ? `\nReached --max-spend=${MAX_SPEND}: spent $${spent.toFixed(2)}, ` +
@@ -391,9 +355,6 @@ async function runExhaust(
     }
     results.push(outcome);
 
-    // Only a 200 actually moved money. A refusal (402) charged nothing, and it
-    // means the next attempt will almost certainly be refused too — settlement
-    // lag or an empty wallet — so stop rather than spin on a dead loop.
     if (outcome.status === 200) {
       budget -= call.price;
       spent += call.price;

@@ -3,7 +3,7 @@
  *
  * WHY A PAGE. The CLI runners require cloning the repo and putting a mnemonic in
  * .env, which is fine for us and unusable for anyone else. This page offers the
- * same four modes (single call, run-all, exhaust, capped exhaust) to someone who
+ * same modes (single call, full run, and a bounded load test) to someone who
  * has only a wallet.
  *
  * NO KEY EVER LEAVES THE WALLET. There is deliberately no mnemonic input here.
@@ -203,15 +203,7 @@ export function renderPlayground(opts: {
       <button id="stop" class="secondary hide">Stop</button>
     </div>
 
-    <!--
-      The soak test lives behind a disclosure on purpose.
-      A button whose job is to spend a connected wallet down should not sit at
-      the same level as the ordinary one, and should not lead with the outcome.
-      Someone evaluating the project sees a calm default; the load test is still
-      one click away for anyone who wants it, with the cost stated before the
-      button rather than after.
-    -->
-    <details id="soak" style="margin-top:.9rem">
+    <details id="load-test" style="margin-top:.9rem">
       <summary class="small muted" style="cursor:pointer">Load testing</summary>
       <div style="margin-top:.7rem">
         <p class="tiny muted" style="margin:0 0 .6rem">
