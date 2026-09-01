@@ -11,6 +11,8 @@
  *   npm run run-all -- --all         # attempt every endpoint regardless of balance
  *   npm run run-all -- --only=asset-risk,portfolio
  *
+ *   npm run run-all -- --wallet=alice          # pay from wallets/alice.txt
+ *
  *   npm run run-exhaust                        # spend the wallet down
  *   npm run run-exhaust -- --max-spend=0.10    # ...but stop after $0.10
  *
@@ -31,13 +33,19 @@
  * endpoint being broken. A partial run is not a failure and exits 0; --all
  * restores the old attempt-everything behaviour.
  *
+ * WALLET SELECTION. --wallet=<name> reads the mnemonic from wallets/<name>.txt,
+ * which is gitignored. That is how several wallets run at once: one name per
+ * terminal, no editing .env between runs, and no phrase on the command line
+ * where it would land in shell history and the process list. Without the flag
+ * the runner falls back to AVM_CLIENT_MNEMONIC from the environment.
+ *
  * Requires in .env: AVM_CLIENT_MNEMONIC, AGENTHUB_BASE_URL, ALGOD_URL
  */
 import "dotenv/config";
 import algosdk from "algosdk";
 import { x402Client, x402HTTPClient } from "@x402-avm/core/client";
 import { registerExactAvmScheme } from "@x402-avm/avm/exact/client";
-import { resolveAccount, toSigner } from "./mnemonic";
+import { resolveAccount, toSigner, loadMnemonic, walletArg } from "./mnemonic";
 
 /** Pause between paid calls so settlement of one lands before the next is built. */
 const SETTLE_GAP_MS = 2_000;
@@ -585,9 +593,17 @@ async function main() {
     throw new Error(`--max-spend must be a positive number of USDC, got "${maxSpendArg}"`);
   }
 
-  const mnemonic = process.env.AVM_CLIENT_MNEMONIC;
-  if (!DRY && !mnemonic) {
-    throw new Error("AVM_CLIENT_MNEMONIC is required for a paid run (use --dry to skip payment).");
+  // A dry run never signs, so it needs no wallet at all.
+  const wallet = walletArg();
+  let mnemonic: string | undefined;
+  if (DRY) {
+    try {
+      mnemonic = loadMnemonic(wallet);
+    } catch {
+      mnemonic = undefined;
+    }
+  } else {
+    mnemonic = loadMnemonic(wallet);
   }
 
   const catalog = await fetchCatalog();
@@ -600,6 +616,7 @@ async function main() {
 
   console.log(`Base URL   : ${baseUrl}`);
   console.log(`Algod      : ${algodUrl}`);
+  if (wallet) console.log(`Wallet     : ${wallet}  (wallets/${wallet}.txt)`);
 
   // A dry run only decodes 402 quotes, so it needs no signer and no scheme.
   const core = new x402Client();

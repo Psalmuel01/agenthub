@@ -32,6 +32,8 @@
  * signAlgoTransaction from the Foundation's own implementation does the work,
  * and correctness is confirmed against algod's simulate endpoint.
  */
+import fs from "fs";
+import path from "path";
 import algosdk from "algosdk";
 import { mnemonicToSeedSync, validateMnemonic } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english";
@@ -62,6 +64,76 @@ export interface ClientSigner {
     txns: Uint8Array[],
     indexesToSign?: number[],
   ): Promise<(Uint8Array | null)[]>;
+}
+
+/**
+ * Directory holding one file per named wallet, e.g. wallets/alice.txt.
+ *
+ * Gitignored. Each file contains just the mnemonic — a 25-word Algorand phrase
+ * or a 24-word BIP-39 one — with blank lines and #-comments ignored.
+ */
+const WALLET_DIR = "wallets";
+
+/**
+ * Resolve which mnemonic to use, by name or from the environment.
+ *
+ * Running several wallets at once used to mean editing .env between runs or
+ * pasting phrases onto the command line, where they end up in shell history and
+ * in the process list other users can read. A name keeps the secret in a
+ * gitignored file and off both.
+ *
+ * Precedence: an explicit --wallet name, then AVM_CLIENT_MNEMONIC from the
+ * environment (which a shell prefix can still override for one command), then
+ * nothing.
+ */
+export function loadMnemonic(walletName?: string | null): string {
+  if (walletName) {
+    const safe = walletName.trim();
+    // Names index a file, so anything path-like is refused rather than resolved:
+    // --wallet=../../.env should not become a way to read arbitrary files.
+    if (!/^[A-Za-z0-9._-]+$/.test(safe)) {
+      throw new Error(
+        `invalid wallet name "${walletName}" — use letters, digits, dot, dash or underscore`,
+      );
+    }
+
+    const file = path.join(WALLET_DIR, safe.endsWith(".txt") ? safe : `${safe}.txt`);
+    if (!fs.existsSync(file)) {
+      const known = fs.existsSync(WALLET_DIR)
+        ? fs.readdirSync(WALLET_DIR).filter((f) => f.endsWith(".txt")).map((f) => f.replace(/\.txt$/, ""))
+        : [];
+      throw new Error(
+        `no wallet named "${safe}" (looked for ${file})` +
+          (known.length ? `\nKnown wallets: ${known.join(", ")}` : `\nCreate ${file} containing the mnemonic.`),
+      );
+    }
+
+    const phrase = fs
+      .readFileSync(file, "utf8")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#"))
+      .join(" ")
+      .trim();
+
+    if (!phrase) throw new Error(`${file} is empty`);
+    return phrase;
+  }
+
+  const fromEnv = process.env.AVM_CLIENT_MNEMONIC;
+  if (!fromEnv) {
+    throw new Error(
+      "no wallet selected: set AVM_CLIENT_MNEMONIC in .env, or pass --wallet=<name> " +
+        `to use ${WALLET_DIR}/<name>.txt`,
+    );
+  }
+  return fromEnv;
+}
+
+/** Read --wallet=<name> from argv, if present. */
+export function walletArg(argv: string[] = process.argv): string | null {
+  const arg = argv.find((a) => a.startsWith("--wallet="));
+  return arg ? arg.slice("--wallet=".length) : null;
 }
 
 /** Normalise whitespace/case so pasted phrases still work. */

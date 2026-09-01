@@ -3,3 +3,9 @@ node_modules
 .DS_Store
 PLAN.md
 dist
+
+# Live mnemonics, one file per named wallet (--wallet=<name>).
+# Ignore the contents rather than the directory itself: `wallets/` would exclude
+# the directory outright and no negation inside it could take effect.
+wallets/*
+!wallets/README.md

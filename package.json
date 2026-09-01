@@ -12,7 +12,8 @@
     "run-all": "ts-node-dev --transpile-only scripts/run-all.ts",
     "run-exhaust": "ts-node-dev --transpile-only scripts/run-all.ts --exhaust",
     "optin-usdc": "ts-node-dev --transpile-only scripts/optin-usdc.ts",
-    "use-client": "ts-node-dev --transpile-only scripts/use-client.ts"
+    "use-client": "ts-node-dev --transpile-only scripts/use-client.ts",
+    "wallets": "ls wallets/*.txt 2>/dev/null | sed 's|wallets/||;s|\\.txt$||' || echo 'no wallets yet \u2014 see wallets/README.md'"
   },
   "dependencies": {
     "@x402-avm/avm": "^2.6.1",
