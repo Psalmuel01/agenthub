@@ -466,16 +466,10 @@ export function renderLandingPage(baseUrl?: string): string {
       gets a useful result back. Payment <em>is</em> the authorization layer.
     </p>
 
-    <!--
-      Playground link deliberately hidden. /playground still serves normally for
-      anyone given the URL directly; it is only unlinked from here, so it is
-      unlisted rather than protected. Restore this block to make it public again.
-
     <p style="margin:-.4rem 0 0">
       <a href="/playground"><strong>Try it in the browser →</strong></a>
       <span class="muted"> Connect an Algorand wallet and call any endpoint below, no setup.</span>
     </p>
-    -->
 
     <h2>Tools</h2>
 ${cards}
@@ -524,6 +518,12 @@ AgentHub is a marketplace of pay-per-call microservices for AI agents, built on 
 payment protocol and settling in USDC on Algorand mainnet. There are no accounts, no API
 keys, and no subscriptions: an agent attaches a micropayment to a standard HTTP request
 and receives a result. Payment is the authorization layer.
+
+## Try it in a browser
+
+A hosted playground at ${baseUrl}/playground runs every endpoint below from the
+browser with a connected Algorand wallet — useful for humans evaluating the API
+before wiring an agent to it.
 
 ## How to call these endpoints
 

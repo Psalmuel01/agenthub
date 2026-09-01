@@ -149,14 +149,7 @@ export function renderPlayground(opts: {
 <title>AgentHub Playground</title>
 <meta name="description" content="Run AgentHub's paid x402 endpoints from the browser with an Algorand wallet.">
 <link rel="icon" href="${FAVICON}">
-<!--
-  noindex is a deliberate choice, not a leftover: this page is shared by direct
-  link only, and is unlinked from the landing page for the same reason. If it
-  should become publicly discoverable, remove this tag AND restore the landing
-  page link — leaving one without the other is the inconsistent state.
-  Note it only asks crawlers to skip the page; anyone with the URL still loads it.
--->
-<meta name="robots" content="noindex">
+
 <style>${STYLES}</style>
 </head>
 <body>
