@@ -197,7 +197,8 @@ export function renderPlayground(opts: {
   <div class="panel" id="runner-panel">
     <div class="row spread">
       <div class="row">
-        <button id="run-all" class="secondary" disabled>Run all affordable</button>
+        <button id="run-all" class="secondary" disabled>Try all endpoints</button>
+        <span id="run-all-cost" class="tiny muted"></span>
       </div>
       <button id="stop" class="secondary hide">Stop</button>
     </div>

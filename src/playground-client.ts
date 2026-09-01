@@ -457,6 +457,7 @@ function renderEndpoints() {
   // The rebuild above wiped every result off the page. Put them back, or a
   // result vanishes the moment the balance refresh that follows a run lands.
   for (const name of results.keys()) paintOutput(name);
+  renderRunAllCost();
 }
 
 const truncate = (s, n) => (String(s).length > n ? String(s).slice(0, n) + "…" : String(s));
@@ -697,6 +698,40 @@ function setStatus(text) {
 // ---------------------------------------------------------------------------
 // Run modes
 // ---------------------------------------------------------------------------
+
+/**
+ * Say what "try all endpoints" will cost, next to the button.
+ *
+ * The label is deliberately low-pressure, so the price belongs beside it rather
+ * than nowhere: someone should know the number before they click, not from the
+ * receipt afterwards. Derived from the catalog so repricing cannot leave a
+ * stale figure on the page.
+ */
+function renderRunAllCost() {
+  const el = $("run-all-cost");
+  if (!el) return;
+  if (!catalog.length) { el.textContent = ""; return; }
+
+  const total = catalog.reduce((sum, e) => sum + e.priceUsd, 0);
+  if (!account) {
+    el.textContent = "each once · about $" + total.toFixed(2);
+    return;
+  }
+
+  const usdc = balances ? balances.usdc : 0;
+  let budget = usdc, affordableCount = 0, cost = 0;
+  for (const e of catalog) {
+    if (!isPaid(e)) { affordableCount++; continue; }
+    if (round6(budget) >= round6(e.priceUsd)) {
+      affordableCount++; budget -= e.priceUsd; cost += e.priceUsd;
+    }
+  }
+
+  el.textContent = affordableCount === catalog.length
+    ? "all " + catalog.length + " · about $" + cost.toFixed(2)
+    : affordableCount + " of " + catalog.length + " · $" + cost.toFixed(2) +
+      " (rest need more USDC)";
+}
 
 function setRunnerEnabled(on) {
   const anyPaid = catalog.some(isPaid);
