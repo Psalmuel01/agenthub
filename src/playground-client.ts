@@ -423,7 +423,11 @@ function renderEndpoints() {
   $("endpoints").innerHTML = catalog.map((e) => {
     const affordableNow =
       !isPaid(e) || (balances && round6(balances.usdc) >= round6(e.priceUsd));
-    const disabled = !canPay || (isPaid(e) && !affordableNow) ? "disabled" : "";
+    // Only paid endpoints need a wallet. A free route is the whole point of
+    // being free: someone should get a real answer out of this page before
+    // deciding whether to connect anything.
+    const needsWallet = isPaid(e) && !canPay;
+    const disabled = needsWallet || (isPaid(e) && !affordableNow) ? "disabled" : "";
     const priceLabel = isPaid(e) ? "$" + e.priceUsd.toFixed(2) : "FREE";
 
     return "<div class='ep' data-ep='" + escapeHtml(e.name) + "'>" +
@@ -442,7 +446,9 @@ function renderEndpoints() {
       "<div class='row'>" +
         "<button class='small' data-run='" + escapeHtml(e.name) + "' " + disabled + ">Run" +
           (isPaid(e) ? " · $" + e.priceUsd.toFixed(2) : "") + "</button>" +
-        (!canPay ? "<span class='tiny muted'>connect a wallet to run</span>" : "") +
+        (needsWallet ? "<span class='tiny muted'>connect a wallet to run</span>" : "") +
+        (!isPaid(e) && !canPay
+          ? "<span class='tiny muted'>free — no wallet needed</span>" : "") +
         (canPay && isPaid(e) && !affordableNow
           ? "<span class='tiny warn'>not enough USDC</span>" : "") +
       "</div>" +
@@ -493,6 +499,15 @@ async function callEndpoint(http, entry, bodyOverride) {
   }
 
   const first = await fetch(entry.path, init);
+  // Without a client there is nothing to pay with; a 402 here would mean a
+  // route we believed was free is not, which is worth surfacing plainly.
+  if (!http && first.status === 402) {
+    return {
+      name: entry.name, status: 402, ms: Date.now() - started, ok: false,
+      body: "", charged: false,
+      note: "this endpoint requires payment — connect a wallet",
+    };
+  }
   if (first.status !== 402) {
     const text = await first.text();
     return {
@@ -810,12 +825,16 @@ function paintOutput(name) {
 
 async function runOne(name) {
   const entry = catalog.find((e) => e.name === name);
-  if (!entry || !account) return;
+  if (!entry) return;
+  // Paid calls need a wallet to sign with; free ones are a plain fetch.
+  if (isPaid(entry) && !account) return;
 
   setRunning(true);
   try {
     const override = document.querySelector("[data-body='" + name + "']")?.value;
-    const http = makeHttpClient();
+    // A free route answers 200 and never reaches the signer, so do not build a
+    // payment client around a wallet that may not be connected.
+    const http = account ? makeHttpClient() : null;
     const result = await callEndpoint(http, entry, override);
     showOutput(name, result);
     logLine(result);
