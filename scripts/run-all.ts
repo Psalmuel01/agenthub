@@ -305,6 +305,32 @@ function planWithinBudget(calls: Call[], usdc: number): { run: Call[]; skip: Cal
 }
 
 /**
+ * Give each run its own taste in endpoints.
+ *
+ * Uniform selection made every run statistically identical — the calls came out
+ * evenly spread across the catalog every time. Weighting each run separately
+ * exercises more orderings and stops repeated runs from producing the same
+ * shape. The weights are a fresh random draw per run, not a fixed curve.
+ */
+function sessionWeights(calls: Call[]): Map<string, number> {
+  const w = new Map<string, number>();
+  for (const c of calls) w.set(c.name, 0.15 + Math.random() * Math.random() * 3);
+  return w;
+}
+
+/** Pick one call at random, respecting this run's weights. */
+function weightedPick(calls: Call[], weights: Map<string, number>): Call {
+  let total = 0;
+  for (const c of calls) total += weights.get(c.name) ?? 1;
+  let r = Math.random() * total;
+  for (const c of calls) {
+    r -= weights.get(c.name) ?? 1;
+    if (r <= 0) return c;
+  }
+  return calls[calls.length - 1];
+}
+
+/**
  * Spend the wallet down by paying for randomly chosen endpoints.
  *
  * Each iteration picks uniformly at random from the endpoints the *remaining*
@@ -328,6 +354,7 @@ async function runExhaust(
   const paid = calls.filter((c) => c.price > 0);
   const cheapest = Math.min(...paid.map((c) => c.price));
   const results: Outcome[] = [];
+  const weights = sessionWeights(paid);
   let budget = startingBudget;
   let spent = 0;
 
@@ -347,7 +374,7 @@ async function runExhaust(
       break;
     }
 
-    const call = affordable[Math.floor(Math.random() * affordable.length)];
+    const call = weightedPick(affordable, weights);
     console.log(
       `\n[call ${results.length + 1}] budget $${budget.toFixed(6)} — ` +
         `${affordable.length} affordable, picked ${call.name} ($${call.price.toFixed(2)})`,

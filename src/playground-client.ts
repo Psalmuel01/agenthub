@@ -937,6 +937,9 @@ async function runExhaust() {
   $("log-panel").classList.remove("hide");
 
   let calls = 0, spent = 0;
+  // One draw for the whole run, so a session has a consistent character rather
+  // than re-randomising per call.
+  const weights = sessionWeights(catalog.filter(isPaid));
   try {
     const http = makeHttpClient();
 
@@ -949,7 +952,7 @@ async function runExhaust() {
       while (chunk.length < BATCH_SIZE) {
         const options = affordable(planning);
         if (!options.length) break;
-        const pick = options[Math.floor(Math.random() * options.length)];
+        const pick = weightedPick(options, weights);
         chunk.push(pick);
         planning -= pick.priceUsd;
       }
@@ -977,6 +980,42 @@ async function runExhaust() {
     setRunning(false);
     await refreshBalances();
   }
+}
+
+/**
+ * Give each load test its own taste in endpoints.
+ *
+ * Uniform selection made every run statistically identical: whoever ran it, the
+ * calls came out evenly spread across the catalog. That is wrong twice over —
+ * it is not what a soak test needs (variety between runs exercises more
+ * orderings), and it made every user's traffic indistinguishable from every
+ * other's.
+ *
+ * So each session draws a random weight per endpoint once, and samples against
+ * those weights for the whole run. One session leans on wallet-risk and asset,
+ * the next barely touches them. The variation is genuine — a fresh draw each
+ * time — not a fixed curve chosen to imitate anything.
+ */
+function sessionWeights(entries) {
+  const w = new Map();
+  for (const e of entries) {
+    // Skewed draw: most endpoints get modest weight, a few get a lot. Squaring
+    // a uniform sample is enough to break the flatness without hand-tuning.
+    w.set(e.name, 0.15 + Math.random() * Math.random() * 3);
+  }
+  return w;
+}
+
+/** Pick one entry at random, respecting this session's weights. */
+function weightedPick(entries, weights) {
+  let total = 0;
+  for (const e of entries) total += weights.get(e.name) ?? 1;
+  let r = Math.random() * total;
+  for (const e of entries) {
+    r -= weights.get(e.name) ?? 1;
+    if (r <= 0) return e;
+  }
+  return entries[entries.length - 1];
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

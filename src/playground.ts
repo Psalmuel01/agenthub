@@ -248,8 +248,7 @@ export function renderPlayground(opts: {
   <div id="endpoints"><p class="muted small">Loading catalog…</p></div>
 
   <p class="small muted" style="margin-top:2.5rem">
-    Prefer the terminal? <code>npm run run-all</code> and <code>npm run run-exhaust</code>
-    do the same thing from the CLI. <a href="/">Back to the catalog</a>.
+    <a href="/">Back to the catalog</a>.
   </p>
 </main>
 
