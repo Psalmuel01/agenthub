@@ -400,6 +400,8 @@ export function renderLandingPage(baseUrl?: string): string {
 <title>${escapeHtml(buildTitle())}</title>
 <meta name="description" content="${escapeHtml(buildDescription())}">
 <link rel="icon" href="${FAVICON}">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+<link rel="apple-touch-icon" href="/favicon.png">
 <meta property="og:type" content="website">
 <meta property="og:title" content="${escapeHtml(buildTitle())}">
 <meta property="og:description" content="${escapeHtml(buildDescription())}">

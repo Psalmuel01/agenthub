@@ -1296,6 +1296,32 @@ app.get("/api/catalog", (_req, res) => {
   res.json({ endpoints: buildCatalog(routes, TOOLS) });
 });
 
+const FAVICON_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">' +
+  '<rect width="32" height="32" rx="7" fill="#0b0b0f"/>' +
+  '<text x="16" y="23" font-family="ui-monospace,monospace" font-size="19"' +
+  ' font-weight="700" fill="#00d3a7" text-anchor="middle">A</text></svg>';
+
+const FAVICON_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAA7klEQVR42u3bMQ6DMAyF4ewZuP8JeqAeKGyVqrYgaGw/x/+QEcL7AJHIuPW+tRtjiI7LWTKHnYKyevhThNWDn0JUCv8VoVr4DwQACoZ/Q6ga/oUAAAAAADAqDwBCJn0+fg4AVgc4Ch+BAIBaeG8EABTDeyIAoPDZi0QAAACRVV8UAgBKa/4IBADUdnzeCAB4A1gfKwHw7130fAqayro/an/QMoW3QAAgW/jZCABkDD8TAQD1YkcKAPOLNDw/AFnqfGavGACJqrwW8wGQrcY/e14A+EeI3+QAAAAAAGiYoGUGANrmaJykdZbm6YLt8zst9U1AeUvTVwAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+// Directories and crawlers fetch /favicon.ico directly rather than reading the
+// <link> tag, so the page's inline data URI is invisible to them. Raster is
+// served at .ico because that is what such fetchers expect.
+app.get("/favicon.ico", (_req, res) => {
+  res.type("image/png").set("Cache-Control", "public, max-age=86400").send(FAVICON_PNG);
+});
+
+app.get("/favicon.png", (_req, res) => {
+  res.type("image/png").set("Cache-Control", "public, max-age=86400").send(FAVICON_PNG);
+});
+
+app.get("/favicon.svg", (_req, res) => {
+  res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(FAVICON_SVG);
+});
+
 app.get("/llms.txt", (req, res) => {
   res.type("text/plain").send(renderLlmsTxt(publicOrigin(req)));
 });
