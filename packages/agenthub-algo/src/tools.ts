@@ -259,6 +259,46 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       required: ["prompt"],
     },
   },
+  {
+    name: "algorand_trace_funds",
+    description: "Trace value outward from an Algorand address across up to four hops. Returns observed edges, destinations, and every scan limit hit. Use as investigative leads, not ownership attribution.",
+    input_schema: {
+      type: "object",
+      properties: {
+        address: { type: "string", description: "Origin Algorand address." },
+        hops: { type: "number", description: "Number of hops, 1 through 4. Defaults to 2." },
+        asset: { type: "string", description: "Optional 'algo' or ASA id filter." },
+      },
+      required: ["address"],
+    },
+  },
+  {
+    name: "algorand_cluster_wallet",
+    description: "Find addresses with on-chain behavior consistent with common control. Returns scored evidence and explicit caveats; results are heuristic leads, never proof of ownership.",
+    input_schema: {
+      type: "object",
+      properties: { address: { type: "string", description: "Algorand address to investigate." } },
+      required: ["address"],
+    },
+  },
+  {
+    name: "algorand_application_info",
+    description: "Read Algorand application metadata, state schemas, decoded global state, program sizes, creator, and application address.",
+    input_schema: {
+      type: "object",
+      properties: { appId: { type: "string", description: "Numeric Algorand application id." } },
+      required: ["appId"],
+    },
+  },
+  {
+    name: "algorand_application_risk",
+    description: "Cautious static screen of an Algorand application. Detects bytecode references to update/delete modes and privileged-looking state keys; references do not prove a path succeeds or identify its authority.",
+    input_schema: {
+      type: "object",
+      properties: { appId: { type: "string", description: "Numeric Algorand application id." } },
+      required: ["appId"],
+    },
+  },
 ];
 
 /**
@@ -293,6 +333,14 @@ export async function executeTool(
       return { summary: await hub.summarize(input.text, input) };
     case "agenthub_generate_text":
       return { response: await hub.inference(input.prompt) };
+    case "algorand_trace_funds":
+      return hub.trace(input.address, input);
+    case "algorand_cluster_wallet":
+      return hub.cluster(input.address);
+    case "algorand_application_info":
+      return hub.appInfo(input.appId);
+    case "algorand_application_risk":
+      return hub.appRisk(input.appId);
     default:
       throw new Error(`unknown AgentHub tool: ${name}`);
   }

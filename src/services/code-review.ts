@@ -26,6 +26,7 @@
  */
 
 import { anthropicComplete, AnthropicError } from "./anthropic";
+import { fetchWithTimeout } from "./fetch-timeout";
 
 /** Diff characters sent to the model. Bounds the dominant cost driver. */
 const MAX_DIFF_CHARS = 60_000;
@@ -98,7 +99,11 @@ function githubHeaders(accept: string): Record<string, string> {
 async function githubGet(path: string, accept: string): Promise<Response> {
   let resp: Response;
   try {
-    resp = await fetch(`${GITHUB_API}${path}`, { headers: githubHeaders(accept) });
+    resp = await fetchWithTimeout(
+      `${GITHUB_API}${path}`,
+      { headers: githubHeaders(accept) },
+      15_000,
+    );
   } catch (err) {
     throw new GitHubUnavailableError(`GitHub request failed: ${String(err)}`);
   }

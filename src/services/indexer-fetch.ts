@@ -11,6 +11,8 @@
  * A 404 is a real answer ("no such account/transaction") and is never retried.
  */
 
+import JSONbigFactory from "json-bigint";
+
 /** Per-attempt timeout. Comfortably above the observed slow case (~5.7s). */
 const TIMEOUT_MS = 8_000;
 
@@ -43,27 +45,20 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * off by 385. Stringifying afterwards cannot recover it, so a field documented
  * as "raw" or "exact" would be quietly wrong.
  *
- * We pre-quote integer literals that exceed the safe range so they arrive as
- * exact decimal strings. Callers that need arithmetic on them can use BigInt;
- * callers that only display or forward them get the true value.
- *
- * Only unsafe integers are rewritten — everything within +/-2^53 keeps its
- * normal `number` type, so existing code paths are unaffected.
+ * A real JSON parser preserves integer tokens outside the safe range as exact
+ * decimal strings. Callers that need arithmetic can use BigInt.
  */
+const JSONbig = JSONbigFactory({
+  // Values outside Number's exact range become decimal strings. Safe integers
+  // and all ordinary indexer fields retain their normal JSON types.
+  storeAsString: true,
+  strict: true,
+  protoAction: "error",
+  constructorAction: "error",
+});
+
 export function parseJsonLossless(text: string): any {
-  // Match a JSON number in value position, skipping anything inside a string.
-  // Groups: 1 = preceding delimiter, 2 = the integer literal.
-  const rewritten = text.replace(
-    /([:[,]\s*)(-?\d{16,})(?=\s*[,}\]])/g,
-    (whole, prefix: string, digits: string) => {
-      // Cheap guard: only quote when the value genuinely exceeds Number's
-      // exact-integer range. 16+ digits is the trigger, this is the decision.
-      return Number.isSafeInteger(Number(digits))
-        ? whole
-        : `${prefix}"${digits}"`;
-    },
-  );
-  return JSON.parse(rewritten);
+  return JSONbig.parse(text);
 }
 
 /**

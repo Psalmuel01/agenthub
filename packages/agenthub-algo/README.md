@@ -12,13 +12,14 @@ npm install agenthub-algo
 ```ts
 import { AgentHub } from "agenthub-algo";
 
-const hub = new AgentHub({ mnemonic: process.env.ALGORAND_MNEMONIC! });
+const hub = new AgentHub();
 
 // Free — no payment, no wallet needed for this one.
 const holdings = await hub.portfolio("ZW3ISEHZUHPO7OZGMKLKIIMKVICOUDRCERI454I3DB2BH52HGLSO67W754");
 
-// Paid — $0.03, settles a USDC micropayment inside the call.
-const risk = await hub.walletRisk("ZW3ISEHZUHPO7OZGMKLKIIMKVICOUDRCERI454I3DB2BH52HGLSO67W754");
+// Paid — add a wallet; the SDK settles a USDC micropayment inside the call.
+const payingHub = new AgentHub({ mnemonic: process.env.ALGORAND_MNEMONIC! });
+const risk = await payingHub.walletRisk("ZW3ISEHZUHPO7OZGMKLKIIMKVICOUDRCERI454I3DB2BH52HGLSO67W754");
 // { riskScore: 8, riskLevel: "low", signals: { accountAgeDays: 1789, txCount: 100, ... } }
 
 if (risk.riskScore > 60) throw new Error("counterparty too risky");
@@ -28,7 +29,7 @@ That's the whole integration. The 402 handshake, payment signing, and settlement
 inside the call.
 
 **You need:** an Algorand wallet with a little USDC (ASA `31566704`) and ALGO for fees,
-opted in to USDC. At $0.03 a call, $1 is ~33 lookups.
+opted in to USDC. Free methods can use `new AgentHub()` without a mnemonic.
 
 **Or start with `portfolio()` — it is free and needs no wallet at all.**
 
@@ -63,21 +64,25 @@ OpenAI function calling works the same way with `openaiTools()`.
 | Method | Price | Returns |
 |---|---|---|
 | `portfolio(address)` | **FREE** | Every holding — ALGO plus each ASA with resolved names, largest first |
-| `walletRisk(address)` | $0.03 | 0–100 risk score, level, and the six on-chain signals behind it |
-| `explainTx(txid)` | $0.03 | Plain-language summary plus every transfer, decoded app calls, fee |
-| `assetRisk(asaId)` | $0.03 | Scam/rug screen: clawback, freeze, mutable supply, holder concentration |
-| `relationship(a, b)` | $0.03 | Whether two addresses transacted, value moved per asset per direction |
-| `verifyPayment({...})` | $0.02 | Pass/fail verdict that a transaction matched your expectations |
-| `assetInfo(asaId)` | $0.02 | ASA name, decimals, real circulating supply, config flags |
-| `codeReview({owner,repo,pull})` | $0.08 | Structured review of a GitHub PR diff — bugs with file and line |
-| `nlToSql({question,schema})` | $0.03 | SQL from a question — generates only, never executes |
-| `inference(prompt)` | $0.02 | Generated text |
-| `summarize(text, opts?)` | $0.03 | Concise summary of up to 50,000 characters |
+| `walletRisk(address)` | $0.10 | 0–100 risk score, level, and the six on-chain signals behind it |
+| `explainTx(txid)` | $0.08 | Plain-language summary plus every transfer, decoded app calls, fee |
+| `assetRisk(asaId)` | $0.10 | Scam/rug screen: clawback, freeze, mutable supply, holder concentration |
+| `relationship(a, b)` | $0.10 | Whether two addresses transacted, value moved per asset per direction |
+| `verifyPayment({...})` | $0.06 | Pass/fail verdict that a transaction matched your expectations |
+| `assetInfo(asaId)` | $0.05 | ASA name, decimals, real circulating supply, config flags |
+| `trace(address, opts?)` | $0.15 | Bounded outward fund-flow graph |
+| `cluster(address)` | $0.20 | Heuristic wallet-clustering leads with evidence |
+| `appInfo(appId)` | $0.10 | Application metadata and decoded global state |
+| `appRisk(appId)` | $0.18 | Static structural screen with explicit limitations |
+| `codeReview({owner,repo,pull})` | $0.15 | Structured review of a GitHub PR diff — bugs with file and line |
+| `nlToSql({question,schema})` | $0.08 | SQL from a question — generates only, never executes |
+| `inference(prompt)` | $0.05 | Generated text |
+| `summarize(text, opts?)` | $0.10 | Concise summary of up to 50,000 characters |
 
 Start with `portfolio()` — it is free, needs no wallet, and returns the addresses and
 asset ids the paid tools take as input.
 
-The seven Algorand tools are **deterministic** — no LLM, no opaque judgment. They read the
+The eleven Algorand tools are **deterministic** — no LLM, no opaque judgment. They read the
 public indexer and return every signal behind the answer, so your agent can act on the
 reasoning rather than trusting a number. The four LLM-backed tools (`codeReview`,
 `nlToSql`, `inference`, `summarize`) are marked as such below.
@@ -178,7 +183,7 @@ try {
 
 ```ts
 new AgentHub({
-  mnemonic: "...",                                  // required
+  mnemonic: "...",                                  // required only for paid calls
   baseUrl: "https://agenthub-production-8c75.up.railway.app",    // override for self-hosted
   algodUrl: "https://mainnet-api.algonode.cloud",   // must match the server's network
 });

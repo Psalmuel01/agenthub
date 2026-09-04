@@ -230,11 +230,11 @@ export const TOOLS: ToolListing[] = [
     name: "Smart contract risk screen",
     deterministic: true,
     searchTerm: "Algorand smart contract risk",
-    blurb: "Disassembles the approval program to find out whether a contract can be upgraded or " +
-      "deleted out from under you, which privileged roles it names, and what that adds up to as a " +
-      "0-100 risk score with plain findings. No LLM.",
+    blurb: "Disassembles the approval program to detect references to update and delete modes, " +
+      "plus privileged-looking state keys, and reports a cautious 0-100 structural risk score. " +
+      "References do not prove a path succeeds or identify its authority. No LLM.",
     input: "An Algorand application id in the URL path.",
-    output: "{ appId, creator, riskScore, riskLevel, signals: { upgradeable, deletable, deleted, " +
+    output: "{ appId, creator, riskScore, riskLevel, signals: { updatePathReferenced, deletePathReferenced, deleted, " +
       "privilegedRoles, programAnalysed }, findings, disclaimer }",
   },
   {

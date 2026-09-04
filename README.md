@@ -17,7 +17,7 @@ curl https://agenthub-production-8c75.up.railway.app/api/portfolio/ZW3ISEHZUHPO7
 
 ## Endpoints
 
-Eleven endpoints. Seven are deterministic on-chain analysis; four are LLM-backed.
+Fifteen endpoints. Eleven are deterministic on-chain analysis; four are LLM-backed.
 
 ### On-chain intelligence
 
@@ -28,21 +28,25 @@ trusting a number.
 | Endpoint | Price | Returns |
 |---|---|---|
 | `GET /api/portfolio/{address}` | **Free** | Every holding — ALGO plus each ASA with resolved names and decimals-corrected amounts, largest first |
-| `GET /api/wallet-risk/{address}` | $0.03 | 0–100 risk score, level, and the six signals behind it |
-| `GET /api/asset-risk/{asaId}` | $0.03 | Scam/rug screen: clawback, freeze, mutable supply, holder concentration, creator age |
-| `GET /api/explain-tx/{txid}` | $0.03 | Plain-language summary plus every transfer, decoded app calls and inner transactions |
-| `GET /api/relationship?a=&b=` | $0.03 | Whether two addresses have transacted, value moved per asset in each direction |
-| `GET /api/asset/{asaId}` | $0.02 | ASA metadata: name, decimals, real circulating supply, configuration flags |
-| `POST /api/verify-payment` | $0.02 | Pass/fail verdict that a transaction matched your expectations, per check |
+| `GET /api/wallet-risk/{address}` | $0.10 | 0–100 risk score, level, and the six signals behind it |
+| `GET /api/asset-risk/{asaId}` | $0.10 | Scam/rug screen: clawback, freeze, mutable supply, holder concentration, creator age |
+| `GET /api/explain-tx/{txid}` | $0.08 | Plain-language summary plus every transfer, decoded app calls and inner transactions |
+| `GET /api/relationship?a=&b=` | $0.10 | Whether two addresses have transacted, value moved per asset in each direction |
+| `GET /api/asset/{asaId}` | $0.05 | ASA metadata: name, decimals, real circulating supply, configuration flags |
+| `POST /api/verify-payment` | $0.06 | Pass/fail verdict that a transaction matched your expectations, per check |
+| `GET /api/trace/{address}` | $0.15 | Bounded outward fund-flow graph across up to four hops |
+| `GET /api/cluster/{address}` | $0.20 | Heuristic wallet-clustering leads with evidence and caveats |
+| `GET /api/app/{appId}` | $0.10 | Application metadata, schemas, program sizes and decoded global state |
+| `GET /api/app-risk/{appId}` | $0.18 | Static update/delete references and privileged-looking state keys; not an audit |
 
 ### LLM-backed
 
 | Endpoint | Price | Returns |
 |---|---|---|
-| `POST /api/code-review` | $0.08 | Structured review of a GitHub PR diff — concrete bugs with file and line |
-| `POST /api/nl-to-sql` | $0.03 | SQL from a question plus your schema. Generates only; never executes |
-| `POST /api/summarize` | $0.03 | Concise summary of up to 50,000 characters |
-| `POST /api/inference` | $0.02 | Generated text from a prompt |
+| `POST /api/code-review` | $0.15 | Structured review of a GitHub PR diff — concrete bugs with file and line |
+| `POST /api/nl-to-sql` | $0.08 | SQL from a question plus your schema. Generates only; never executes |
+| `POST /api/summarize` | $0.10 | Concise summary of up to 50,000 characters |
+| `POST /api/inference` | $0.05 | Generated text from a prompt |
 
 Unprotected: `GET /` (this listing), `GET /api/health`, `GET /llms.txt`.
 
@@ -59,21 +63,28 @@ npm install agenthub-algo
 ```ts
 import { AgentHub } from "agenthub-algo";
 
-const hub = new AgentHub({ mnemonic: process.env.ALGORAND_MNEMONIC! });
+const hub = new AgentHub();
 
 // Free — no payment.
 const holdings = await hub.portfolio(address);
 
 // Paid — the 402 handshake, signing, and settlement happen inside the call.
-const risk = await hub.walletRisk(address);
+const payingHub = new AgentHub({ mnemonic: process.env.ALGORAND_MNEMONIC! });
+const risk = await payingHub.walletRisk(address);
 if (risk.riskScore > 60) throw new Error("counterparty too risky");
 ```
 
-`mnemonic` must be a 25-word native Algorand mnemonic — the 24-word phrase a Pera or
+Paid calls require `mnemonic`, which must be a 25-word native Algorand mnemonic — the 24-word phrase a Pera or
 Defly wallet shows you is a different standard (BIP-39) and will fail to decode.
 
 The package also ships ready-made tool definitions for the Anthropic and OpenAI SDKs —
 see [`packages/agenthub-algo`](packages/agenthub-algo).
+
+## Usage claims
+
+Facilitator totals measure settlements, not discovered customers. Controlled wallets used for
+functional or load testing are tracked separately from externally attributable wallets, and public
+adoption claims use only independently verified external activity. See [docs/usage-metrics.md](docs/usage-metrics.md).
 
 ### MCP
 

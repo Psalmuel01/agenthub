@@ -7,23 +7,20 @@
  * but not the *contract* it was about to hand funds to, which is the larger
  * exposure.
  *
- * HOW UPGRADEABILITY IS DETERMINED. Not guessed from bytes. The approval
- * program is disassembled by algod, and the branches on `txn OnCompletion` are
- * read: a contract that compares OnCompletion against 4 handles
- * UpdateApplication and can therefore have its logic replaced; 5 is
- * DeleteApplication and means it can be removed outright. An earlier attempt
- * scanned the raw bytecode for those constants and reported almost everything
- * as upgradeable, because a 0x04 byte occurs constantly in compiled TEAL —
- * disassembly is what makes the answer trustworthy.
+ * WHAT STATIC ANALYSIS CAN ESTABLISH. The approval program is disassembled and
+ * inspected for comparisons involving UpdateApplication (4) and
+ * DeleteApplication (5). Their presence proves only that the program refers to
+ * those OnCompletion modes. It does not prove the corresponding path succeeds:
+ * the branch may reject, and authorization can depend on arbitrary program
+ * state. The result therefore reports references, never definitive capability.
  *
- * WHAT UPGRADEABLE MEANS FOR A CALLER. The code audited today can be replaced
- * tomorrow by whoever holds the creator or manager keys. That is not
- * automatically malicious — protocols upgrade for good reasons — but it means
- * trust rests on the key holder, not on the code. Verified on mainnet: Tinyman's
- * v2 AMM handles both 4 and 5, so it is upgradeable and deletable.
+ * Establishing whether an app is actually upgradeable/deletable, and who is
+ * authorized, requires control-flow and state analysis or an audit.
  */
+import algosdk from "algosdk";
 import { ALGOD_URL } from "../config";
 import { ChainDataError, indexerGet } from "./chain";
+import { fetchWithTimeout } from "./fetch-timeout";
 
 /** OnCompletion values that matter for risk. */
 const ON_COMPLETION_UPDATE = 4;
@@ -73,8 +70,8 @@ export interface AppRisk {
   riskScore: number;
   riskLevel: "low" | "medium" | "high";
   signals: {
-    upgradeable: boolean;
-    deletable: boolean;
+    updatePathReferenced: boolean;
+    deletePathReferenced: boolean;
     deleted: boolean;
     /** Privileged role keys found in global state, e.g. admin, manager. */
     privilegedRoles: string[];
@@ -90,9 +87,10 @@ export interface AppRisk {
 }
 
 const DISCLAIMER =
-  "Automated analysis of on-chain contract structure, not a security audit. " +
-  "It reports what the contract can do, not whether it will — an upgradeable contract " +
-  "is normal for an actively maintained protocol. Absence of findings is not proof of safety.";
+  "Automated structural screening, not a security audit. An UpdateApplication or " +
+  "DeleteApplication reference does not prove that operation is permitted or identify who " +
+  "can authorize it; the referenced branch may reject. Absence of a detected reference is " +
+  "also not proof of safety.";
 
 /** Global state key names that indicate a privileged role. */
 const ROLE_HINTS = ["admin", "manager", "owner", "governor", "authority", "setter", "collector", "operator"];
@@ -116,6 +114,17 @@ function decodeKey(b64: string): string {
   }
 }
 
+/** Decode readable byte values while preserving binary data as base64. */
+function decodeBytes(b64: string): string {
+  try {
+    const bytes = Buffer.from(b64, "base64");
+    const text = bytes.toString("utf8");
+    return text.length > 0 && /^[\x09\x0a\x0d\x20-\x7e]+$/.test(text) ? text : b64;
+  } catch {
+    return b64;
+  }
+}
+
 /**
  * Disassemble the approval program and read which OnCompletion values it
  * branches on.
@@ -124,34 +133,64 @@ function decodeKey(b64: string): string {
  * "unknown" rather than silently reporting "not upgradeable" — the difference
  * between those two matters when someone is deciding where to put money.
  */
-async function onCompletionBranches(approvalB64: string): Promise<Set<number> | null> {
+export function onCompletionReferencesFromDisassembly(text: string): Set<number> {
+  const lines = text
+    .split("\n")
+    .map((line) => line.replace(/\/\/.*$/, "").trim())
+    .filter(Boolean);
+  let intConstants: number[] = [];
+  const found = new Set<number>();
+
+  const constantAt = (index: number): number | null => {
+    const line = lines[index] ?? "";
+    const direct = line.match(/^(?:pushint|int)\s+(\d+)\b/i);
+    if (direct) return Number(direct[1]);
+    const indexed = line.match(/^intc(?:_|\s+)(\d+)\b/i);
+    if (indexed) return intConstants[Number(indexed[1])] ?? null;
+    return null;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const block = lines[i].match(/^intcblock\s+(.+)$/i);
+    if (block) {
+      intConstants = block[1].split(/\s+/).filter((v) => /^\d+$/.test(v)).map(Number);
+      continue;
+    }
+    if (!/^txn\s+OnCompletion\b/i.test(lines[i])) continue;
+
+    // Compilers normally load the comparison constant immediately after txn,
+    // but tolerate stack shuffling while staying within the local expression.
+    for (let j = i + 1; j <= Math.min(i + 4, lines.length - 1); j++) {
+      if (/^(?:b|bz|bnz|return|retsub)\b/i.test(lines[j])) break;
+      const value = constantAt(j);
+      if (value === ON_COMPLETION_UPDATE || value === ON_COMPLETION_DELETE) {
+        const comparison = lines.slice(j + 1, j + 3).some((line) => /^(?:==|!=|<=|>=|<|>)(?:\s|$)/.test(line));
+        if (comparison) found.add(value);
+        break;
+      }
+    }
+  }
+  return found;
+}
+
+async function onCompletionReferences(approvalB64: string): Promise<Set<number> | null> {
   const bytes = Buffer.from(approvalB64, "base64");
   if (!bytes.length || bytes.length > MAX_PROGRAM_BYTES) return null;
 
   let text: string;
   try {
-    const res = await fetch(`${ALGOD_URL}/v2/teal/disassemble`, {
+    const res = await fetchWithTimeout(`${ALGOD_URL}/v2/teal/disassemble`, {
       method: "POST",
       headers: { "Content-Type": "application/x-binary" },
       body: bytes,
-    });
+    }, 8_000);
     if (!res.ok) return null;
     text = ((await res.json()) as any)?.result ?? "";
   } catch {
     return null;
   }
 
-  const lines = text.split("\n");
-  const found = new Set<number>();
-  for (let i = 0; i < lines.length; i++) {
-    if (!lines[i].includes("OnCompletion")) continue;
-    // The comparison constant follows within a couple of instructions:
-    //   txn OnCompletion / pushint 4 / == / bnz label
-    const window = lines.slice(i + 1, i + 3).join(" ");
-    const m = window.match(/(?:pushint|intc_?\d?|int)\s+(\d+)/);
-    if (m) found.add(Number(m[1]));
-  }
-  return found;
+  return onCompletionReferencesFromDisassembly(text);
 }
 
 /** Fetch one application, or throw a typed error the route can map to a status. */
@@ -180,9 +219,10 @@ export async function getAppInfo(appIdInput: string): Promise<AppInfo> {
   const globalState: AppStateEntry[] = (params["global-state"] ?? []).map((kv: any) => {
     const key = decodeKey(kv.key);
     if (kv.value?.type === 2) {
-      return { key, type: "uint" as const, value: Number(kv.value.uint ?? 0) };
+      const uint = kv.value.uint ?? 0;
+      return { key, type: "uint" as const, value: typeof uint === "string" ? uint : Number(uint) };
     }
-    return { key, type: "bytes" as const, value: String(kv.value?.bytes ?? "") };
+    return { key, type: "bytes" as const, value: decodeBytes(String(kv.value?.bytes ?? "")) };
   });
 
   return {
@@ -201,7 +241,7 @@ export async function getAppInfo(appIdInput: string): Promise<AppInfo> {
       numByteSlice: params["local-state-schema"]?.["num-byte-slice"] ?? 0,
     },
     globalState,
-    appAddress: null,
+    appAddress: algosdk.getApplicationAddress(BigInt(appId)).toString(),
   };
 }
 
@@ -210,8 +250,8 @@ export async function getAppInfo(appIdInput: string): Promise<AppInfo> {
  *
  * Scoring (higher = more risk, clamped to 0-100):
  *   deleted            +60  the contract no longer exists
- *   upgradeable        +30  logic can be replaced by the key holder
- *   deletable          +25  contract can be removed, stranding anything it holds
+ *   update reference   +15  program explicitly compares UpdateApplication
+ *   delete reference   +10  program explicitly compares DeleteApplication
  *   unanalysable       +15  program too large to disassemble; flags unknown
  *   privileged roles   +5 each (max +15) admin-style keys in global state
  *
@@ -222,10 +262,10 @@ export async function scoreApp(appIdInput: string): Promise<AppRisk> {
   const app = await fetchApp(appId);
   const params = app.params ?? {};
 
-  const branches = await onCompletionBranches(params["approval-program"] ?? "");
-  const programAnalysed = branches !== null;
-  const upgradeable = branches?.has(ON_COMPLETION_UPDATE) ?? false;
-  const deletable = branches?.has(ON_COMPLETION_DELETE) ?? false;
+  const references = await onCompletionReferences(params["approval-program"] ?? "");
+  const programAnalysed = references !== null;
+  const updatePathReferenced = references?.has(ON_COMPLETION_UPDATE) ?? false;
+  const deletePathReferenced = references?.has(ON_COMPLETION_DELETE) ?? false;
   const deleted = Boolean(app.deleted);
 
   const globalKeys: string[] = (params["global-state"] ?? []).map((kv: any) => decodeKey(kv.key));
@@ -240,38 +280,38 @@ export async function scoreApp(appIdInput: string): Promise<AppRisk> {
     score += 60;
     findings.push("This application has been deleted and no longer exists on chain.");
   }
-  if (upgradeable) {
-    score += 30;
+  if (updatePathReferenced) {
+    score += 15;
     findings.push(
-      "Upgradeable: the approval program handles UpdateApplication, so whoever holds the " +
-        "creator key can replace the contract logic after you interact with it.",
+      "The approval program compares OnCompletion with UpdateApplication. Static screening " +
+        "cannot determine whether that path permits or rejects an update, or who can authorize it.",
     );
   }
-  if (deletable) {
-    score += 25;
+  if (deletePathReferenced) {
+    score += 10;
     findings.push(
-      "Deletable: the approval program handles DeleteApplication, so the contract can be " +
-        "removed. Anything it custodies at that moment may become unrecoverable.",
+      "The approval program compares OnCompletion with DeleteApplication. Static screening " +
+        "cannot determine whether that path permits or rejects deletion, or who can authorize it.",
     );
   }
   if (!programAnalysed) {
     score += 15;
     findings.push(
-      "The approval program could not be disassembled, so upgrade and delete capability " +
-        "are unknown rather than absent.",
+      "The approval program could not be disassembled, so update/delete references are " +
+        "unknown rather than absent.",
     );
   }
   if (privilegedRoles.length) {
     score += Math.min(privilegedRoles.length * 5, 15);
     findings.push(
-      `Global state names ${privilegedRoles.length} privileged role key(s) — ` +
-        `${privilegedRoles.slice(0, 5).join(", ")} — held by addresses that can act on the contract.`,
+      `Global state contains ${privilegedRoles.length} key name(s) associated with privileged roles — ` +
+        `${privilegedRoles.slice(0, 5).join(", ")}. Key names alone do not establish their authority.`,
     );
   }
   if (!findings.length) {
     findings.push(
-      "No upgrade or delete path found in the approval program, and no privileged role keys " +
-        "in global state. This describes structure only, not the correctness of the logic.",
+      "No direct UpdateApplication or DeleteApplication comparison was detected, and no " +
+        "privileged-looking role key was found. This is not proof those capabilities are absent.",
     );
   }
 
@@ -283,8 +323,8 @@ export async function scoreApp(appIdInput: string): Promise<AppRisk> {
     riskScore: score,
     riskLevel: score < 25 ? "low" : score < 60 ? "medium" : "high",
     signals: {
-      upgradeable,
-      deletable,
+      updatePathReferenced,
+      deletePathReferenced,
       deleted,
       privilegedRoles,
       approvalProgramBytes: Buffer.from(params["approval-program"] ?? "", "base64").length,

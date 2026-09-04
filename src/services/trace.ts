@@ -135,28 +135,32 @@ async function outboundEdges(
     scanned += page.length;
 
     for (const txn of page) {
-      // Only outbound: this address must be the sender.
-      if (txn.sender !== address) continue;
-
       const when = txn["round-time"] ? new Date(txn["round-time"] * 1000).toISOString() : null;
-      const txid = txn.id ?? "";
+      const topTxid = txn.id ?? "";
 
-      const pay = txn["payment-transaction"];
-      if (pay && Number(pay.amount) > 0 && (!assetFilter || assetFilter === "algo")) {
-        await addEdge(edges, pay.receiver, "algo", "ALGO", 6, BigInt(pay.amount), txid, when);
-      }
+      const visit = async (node: any): Promise<void> => {
+        const txid = node.id ?? topTxid;
+        if (node.sender === address) {
+          const pay = node["payment-transaction"];
+          if (pay && BigInt(pay.amount ?? 0) > 0n && (!assetFilter || assetFilter === "algo")) {
+            await addEdge(edges, pay.receiver, "algo", "ALGO", 6, BigInt(pay.amount), txid, when);
+          }
 
-      const axfer = txn["asset-transfer-transaction"];
-      if (axfer && Number(axfer.amount) > 0) {
-        const id = String(axfer["asset-id"]);
-        if (!assetFilter || assetFilter === id) {
-          const meta = await getAssetMeta(axfer["asset-id"]);
-          await addEdge(
-            edges, axfer.receiver, id, meta.unitName || meta.name,
-            meta.decimals, BigInt(axfer.amount), txid, when,
-          );
+          const axfer = node["asset-transfer-transaction"];
+          if (axfer && BigInt(axfer.amount ?? 0) > 0n) {
+            const id = String(axfer["asset-id"]);
+            if (!assetFilter || assetFilter === id) {
+              const meta = await getAssetMeta(axfer["asset-id"]);
+              await addEdge(
+                edges, axfer.receiver, id, meta.unitName || meta.name,
+                meta.decimals, BigInt(axfer.amount), txid, when,
+              );
+            }
+          }
         }
-      }
+        for (const inner of node["inner-txns"] ?? []) await visit(inner);
+      };
+      await visit(txn);
     }
 
     next = resp?.["next-token"];
@@ -248,18 +252,34 @@ export async function traceFunds(opts: {
         if (n) n.truncated = true;
       }
 
-      // Follow only the largest flows: a trace that follows dust learns
-      // nothing, and the branch budget is better spent on where the value went.
-      const ranked = [...scan.edges.entries()]
+      // Rank within each asset. Whole ALGO and ASA amounts are not comparable,
+      // so round-robin the per-asset rankings into the branch budget.
+      const candidates = [...scan.edges.entries()]
         .map(([key, acc]) => {
           const [to, assetId] = key.split("|");
           return { to, assetId, acc, amount: Number(acc.amountRaw) / 10 ** acc.decimals };
-        })
-        .sort((a, b) => b.amount - a.amount);
+        });
+      const groups = new Map<string, typeof candidates>();
+      for (const candidate of candidates) {
+        const group = groups.get(candidate.assetId) ?? [];
+        group.push(candidate);
+        groups.set(candidate.assetId, group);
+      }
+      for (const group of groups.values()) {
+        group.sort((a, b) => a.acc.amountRaw > b.acc.amountRaw ? -1 : a.acc.amountRaw < b.acc.amountRaw ? 1 : 0);
+      }
+      const ranked: typeof candidates = [];
+      while (ranked.length < MAX_BRANCH && [...groups.values()].some((group) => group.length)) {
+        for (const group of groups.values()) {
+          const next = group.shift();
+          if (next) ranked.push(next);
+          if (ranked.length >= MAX_BRANCH) break;
+        }
+      }
 
-      if (ranked.length > MAX_BRANCH) truncatedBy.add("maxBranchPerAddress");
+      if (candidates.length > MAX_BRANCH) truncatedBy.add("maxBranchPerAddress");
 
-      for (const { to, assetId, acc, amount } of ranked.slice(0, MAX_BRANCH)) {
+      for (const { to, assetId, acc, amount } of ranked) {
         edges.push({
           from: address, to, hop, asset: assetId, assetName: acc.assetName,
           amount, amountRaw: acc.amountRaw.toString(), txCount: acc.txCount,
@@ -291,8 +311,6 @@ export async function traceFunds(opts: {
     if (!frontier.length) break;
   }
 
-  if (hops >= MAX_HOPS) truncatedBy.add("maxHops");
-
   // Rank destinations by what they actually received, so the answer leads with
   // where the money ended up rather than the order it was discovered.
   const topDestinations = [...nodes.values()]
@@ -303,7 +321,7 @@ export async function traceFunds(opts: {
         amount: r.amount, hop: n.hop,
       })),
     )
-    .sort((a, b) => b.amount - a.amount)
+    .sort((a, b) => a.asset.localeCompare(b.asset) || b.amount - a.amount)
     .slice(0, 10);
 
   return {

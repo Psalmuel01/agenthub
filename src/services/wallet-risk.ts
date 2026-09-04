@@ -65,6 +65,25 @@ export interface WalletRiskResult {
   signals: WalletRiskSignals;
 }
 
+export function scoreWalletSignals(signals: WalletRiskSignals): Pick<WalletRiskResult, "riskScore" | "riskLevel"> {
+  const { accountAgeDays, txCount, balanceAlgo, usdcOptedIn, distinctCounterparties, rekeyed } = signals;
+  let score = 0;
+  if (accountAgeDays === null) score += 30;
+  else if (accountAgeDays < 7) score += 35;
+  else if (accountAgeDays < 30) score += 20;
+  else if (accountAgeDays < 90) score += 10;
+  if (txCount === 0) score += 30;
+  else if (txCount < 5) score += 18;
+  else if (txCount < 25) score += 8;
+  if (balanceAlgo === 0) score += 15;
+  else if (balanceAlgo < 1) score += 8;
+  if (!usdcOptedIn) score += 8;
+  if (distinctCounterparties <= 1) score += 7;
+  if (rekeyed) score += 25;
+  const riskScore = Math.max(0, Math.min(100, score));
+  return { riskScore, riskLevel: riskScore < 30 ? "low" : riskScore < 70 ? "medium" : "high" };
+}
+
 async function indexerGet(path: string): Promise<any> {
   try {
     // 404 comes back as null: an account only exists on-chain once funded, so
@@ -132,29 +151,7 @@ export async function scoreWallet(address: string): Promise<WalletRiskResult> {
   };
 
   // --- Score (see comment block at top of file) ---------------------------
-  let score = 0;
-
-  if (accountAgeDays === null) score += 30; // no visible history at all
-  else if (accountAgeDays < 7) score += 35;
-  else if (accountAgeDays < 30) score += 20;
-  else if (accountAgeDays < 90) score += 10;
-
-  if (txCount === 0) score += 30;
-  else if (txCount < 5) score += 18;
-  else if (txCount < 25) score += 8;
-
-  if (balanceAlgo === 0) score += 15;
-  else if (balanceAlgo < 1) score += 8;
-
-  if (!usdcOptedIn) score += 8;
-
-  if (distinctCounterparties <= 1) score += 7;
-
-  if (rekeyed) score += 25;
-
-  const riskScore = Math.max(0, Math.min(100, score));
-  const riskLevel: WalletRiskResult["riskLevel"] =
-    riskScore < 30 ? "low" : riskScore < 70 ? "medium" : "high";
+  const { riskScore, riskLevel } = scoreWalletSignals(signals);
 
   return { address, riskScore, riskLevel, signals };
 }

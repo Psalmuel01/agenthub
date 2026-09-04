@@ -115,6 +115,7 @@ const DISCLAIMER =
 
 interface Profile {
   counterparties: Set<string>;
+  outboundRecipients: Set<string>;
   firstFunder: string | null;
   firstActivityMs: number | null;
   /** Transfers to/from a given address, as transaction ids. */
@@ -133,6 +134,7 @@ interface Profile {
  */
 async function profile(address: string): Promise<Profile> {
   const counterparties = new Set<string>();
+  const outboundRecipients = new Set<string>();
   const transfersWith = new Map<string, string[]>();
   let scanned = 0;
   let next: string | undefined;
@@ -151,26 +153,30 @@ async function profile(address: string): Promise<Profile> {
     for (const txn of page) {
       const when = Number(txn["round-time"] ?? 0) * 1000;
       if (when && (firstActivityMs === null || when < firstActivityMs)) firstActivityMs = when;
-
-      const pay = txn["payment-transaction"];
-      const axfer = txn["asset-transfer-transaction"];
-      const moved = (pay && Number(pay.amount) > 0) || (axfer && Number(axfer.amount) > 0);
-      if (!moved) continue;
-
-      const receiver = pay?.receiver ?? axfer?.receiver;
-      const sender = txn.sender;
-      const peer = sender === address ? receiver : sender;
-      if (!peer || peer === address) continue;
-
-      counterparties.add(peer);
-      const ids = transfersWith.get(peer) ?? [];
-      if (ids.length < 5 && txn.id) ids.push(txn.id);
-      transfersWith.set(peer, ids);
-
-      // Inbound only: who put value into this account first.
-      if (sender !== address && when && (!oldestInbound || when < oldestInbound.when)) {
-        oldestInbound = { from: sender, when };
-      }
+      const topTxid = txn.id;
+      const visit = (node: any): void => {
+        const pay = node["payment-transaction"];
+        const axfer = node["asset-transfer-transaction"];
+        const moved = (pay && BigInt(pay.amount ?? 0) > 0n) || (axfer && BigInt(axfer.amount ?? 0) > 0n);
+        const receiver = pay?.receiver ?? axfer?.receiver;
+        const sender = node.sender;
+        if (moved && (sender === address || receiver === address)) {
+          const peer = sender === address ? receiver : sender;
+          if (peer && peer !== address) {
+            counterparties.add(peer);
+            if (sender === address) outboundRecipients.add(peer);
+            const ids = transfersWith.get(peer) ?? [];
+            const txid = node.id ?? topTxid;
+            if (ids.length < 5 && txid) ids.push(txid);
+            transfersWith.set(peer, ids);
+            if (sender !== address && when && (!oldestInbound || when < oldestInbound.when)) {
+              oldestInbound = { from: sender, when };
+            }
+          }
+        }
+        for (const inner of node["inner-txns"] ?? []) visit(inner);
+      };
+      visit(txn);
     }
 
     next = resp?.["next-token"];
@@ -181,7 +187,10 @@ async function profile(address: string): Promise<Profile> {
 
   return {
     counterparties,
-    firstFunder: oldestInbound?.from ?? null,
+    outboundRecipients,
+    firstFunder: oldestInbound
+      ? (oldestInbound as { from: string; when: number }).from
+      : null,
     firstActivityMs,
     transfersWith,
     scanned,
@@ -221,14 +230,14 @@ export async function clusterAddress(addressInput: string): Promise<ClusterResul
   if (target.truncated) truncatedBy.add("maxScanPerAddress");
 
   // Candidates: direct counterparties, plus siblings sharing the first funder.
-  const candidates = new Set<string>(target.counterparties);
+  const candidates = new Set<string>();
 
   let funderRecipients: number | null = null;
   if (target.firstFunder) {
     try {
       const funder = await profile(target.firstFunder);
-      funderRecipients = funder.counterparties.size;
-      for (const peer of funder.counterparties) {
+      funderRecipients = funder.outboundRecipients.size;
+      for (const peer of funder.outboundRecipients) {
         if (peer !== address) candidates.add(peer);
       }
       if (funder.truncated) truncatedBy.add("funderScanTruncated");
@@ -237,6 +246,10 @@ export async function clusterAddress(addressInput: string): Promise<ClusterResul
       truncatedBy.add("funderUnreadable");
     }
   }
+
+  // Shared-funder siblings are rarer and therefore take shortlist priority;
+  // direct counterparties fill whatever candidate capacity remains.
+  for (const peer of target.counterparties) candidates.add(peer);
 
   if (candidates.size > MAX_CANDIDATES) truncatedBy.add("maxCandidates");
   const shortlist = [...candidates].slice(0, MAX_CANDIDATES);
@@ -258,16 +271,18 @@ export async function clusterAddress(addressInput: string): Promise<ClusterResul
       // with two hundred is a payment processor and implies nothing.
       const breadth = funderRecipients ?? 1;
       const selectivity = Math.max(0, 1 - (breadth - 2) / FUNDER_SELECTIVITY_CEILING);
-      const points = Math.max(8, Math.round(40 * selectivity));
-      signals.push({
-        signal: "shared-funder",
-        points,
-        detail:
-          `Both accounts were first funded by ${target.firstFunder}, which has funded ` +
-          `${breadth} address${breadth === 1 ? "" : "es"} in the scanned window` +
-          (breadth > 10 ? " — a broad funder, so this is weak evidence" : ""),
-        evidence: [target.firstFunder],
-      });
+      const points = Math.round(40 * selectivity);
+      if (points > 0) {
+        signals.push({
+          signal: "shared-funder",
+          points,
+          detail:
+            `Both accounts were first funded by ${target.firstFunder}, which has funded ` +
+            `${breadth} address${breadth === 1 ? "" : "es"} in the scanned window` +
+            (breadth > 10 ? " — a broad funder, so this is weak evidence" : ""),
+          evidence: [target.firstFunder],
+        });
+      }
     }
 
     const { score: overlap, shared } = jaccard(target.counterparties, profileB.counterparties);

@@ -83,7 +83,11 @@ export interface VerifyPaymentResult {
 /** Normalise an asset expectation to the form used in TransferDetail.asset. */
 function normaliseAsset(a: string | number): string {
   const s = String(a).trim().toLowerCase();
-  return s === "algo" || s === "0" ? "algo" : String(a).trim();
+  if (s === "algo" || s === "0") return "algo";
+  if (!/^\d+$/.test(s)) {
+    throw new InvalidVerifyRequestError("expectedAsset must be 'algo' or a numeric ASA id");
+  }
+  return s;
 }
 
 /**
@@ -151,12 +155,21 @@ export async function verifyPayment(
     }
   }
 
-  if (req.expectedAmount !== undefined && !Number.isFinite(req.expectedAmount)) {
-    throw new InvalidVerifyRequestError("expectedAmount must be a number in whole units");
+  if (
+    req.expectedAmount !== undefined &&
+    (!Number.isFinite(req.expectedAmount) || req.expectedAmount <= 0)
+  ) {
+    throw new InvalidVerifyRequestError("expectedAmount must be a positive number in whole units");
   }
-  const tolerance = Number.isFinite(req.amountTolerance)
-    ? Math.abs(Number(req.amountTolerance))
-    : 0;
+  if (
+    req.amountTolerance !== undefined &&
+    (!Number.isFinite(req.amountTolerance) || req.amountTolerance < 0)
+  ) {
+    throw new InvalidVerifyRequestError("amountTolerance must be a non-negative number");
+  }
+  const tolerance = req.amountTolerance ?? 0;
+
+  if (req.expectedAsset !== undefined) normaliseAsset(req.expectedAsset);
 
   const resp = await indexerGet(`/v2/transactions/${txid}`);
   const txn = resp?.transaction;

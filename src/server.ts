@@ -17,10 +17,12 @@ import {
   PUBLIC_BASE_URL,
   IS_MAINNET,
   ALGOD_URL,
+  INDEXER_URL,
 } from "./config";
 import { renderLandingPage, renderLlmsTxt, TOOLS } from "./landing";
 import { buildCatalog } from "./catalog";
 import { renderPlayground } from "./playground";
+import { validatePaidRequestShape } from "./request-validation";
 import { anthropicComplete, AnthropicError } from "./services/anthropic";
 import { nlToSql, InvalidSqlRequestError } from "./services/nl-to-sql";
 import {
@@ -73,7 +75,7 @@ import {
   VerifyPaymentError,
 } from "./services/verify-payment";
 
-const app = express();
+export const app = express();
 
 // Hosted platforms (Railway, Render, Fly) terminate TLS at a proxy and forward
 // over plain HTTP, so req.protocol reads "http" unless we trust the
@@ -466,13 +468,13 @@ const appRiskDiscovery = declareDiscoveryExtension({
       appId: "1002541853", creator: "ALGORAND_ADDRESS_58_CHARS",
       riskScore: 70, riskLevel: "high",
       signals: {
-        upgradeable: true, deletable: true, deleted: false,
+        updatePathReferenced: true, deletePathReferenced: true, deleted: false,
         privilegedRoles: ["fee_manager", "fee_setter", "fee_collector"],
         approvalProgramBytes: 7731, globalStateKeys: 3, createdAtRound: 26051045,
         programAnalysed: true,
       },
-      findings: ["Upgradeable: the approval program handles UpdateApplication..."],
-      disclaimer: "Automated analysis of on-chain contract structure, not a security audit.",
+      findings: ["The approval program compares OnCompletion with UpdateApplication..."],
+      disclaimer: "Structural screening only; a reference does not prove a path succeeds or who can authorize it.",
     },
   },
 });
@@ -582,7 +584,7 @@ const nlToSqlDiscovery = declareDiscoveryExtension({
   },
 });
 
-const routes = {
+export const routes = {
   "POST /api/inference": {
     accepts: usdcPrice("0.05"), // $0.05
     description:
@@ -742,10 +744,10 @@ const routes = {
   "GET /api/app-risk/[appId]": {
     accepts: usdcPrice("0.18"), // $0.18
     description:
-      "Algorand smart contract risk screening and upgradeability check: given an application id, " +
-      "disassembles the approval program and reports whether the contract can be upgraded (its logic " +
-      "replaced by the key holder) or deleted (removed entirely, stranding anything it custodies), " +
-      "which privileged role keys its global state names, and an explainable 0-100 risk score with " +
+      "Algorand smart contract structural risk screening: given an application id, disassembles " +
+      "the approval program and reports references to UpdateApplication and DeleteApplication. " +
+      "A reference does not prove that a path succeeds or identify who can authorize it. Also reports " +
+      "privileged-looking global-state key names and a cautious 0-100 risk score with " +
       "plain-language findings. Answers the question an agent has before handing funds to a contract, " +
       "which token screening cannot. Deterministic analysis of real bytecode, no LLM. No API key or " +
       "account — pay $0.18 per call in USDC.",
@@ -770,171 +772,6 @@ const routes = {
 // after payment cannot be reversed here. That makes it worth catching
 // everything cheaply detectable up front.
 // ---------------------------------------------------------------------------
-const ALGORAND_ADDRESS = /^[A-Z2-7]{58}$/;
-const ALGORAND_TXID = /^[A-Z2-7]{52}$/;
-const ASA_ID = /^\d+$/;
-
-/**
- * A shape check sees the captured path segments and the parsed body/query
- * directly, rather than an Express request — app-level middleware does not
- * populate `req.params`, and spreading a request loses its prototype methods.
- */
-interface ShapeInput {
-  params: string[];
-  body: any;
-  query: any;
-}
-
-type ShapeCheck = (req: ShapeInput) => string | null;
-
-/** Cheap shape checks per route, keyed by method + path prefix. */
-const PRE_PAYMENT_CHECKS: [string, RegExp, ShapeCheck][] = [
-  [
-    "GET",
-    /^\/api\/wallet-risk\/(.*)$/,
-    (req) =>
-      ALGORAND_ADDRESS.test(req.params[0] ?? "")
-        ? null
-        : "path parameter must be a 58-character Algorand address",
-  ],
-  [
-    "GET",
-    /^\/api\/app\/(.*)$/,
-    (req) => (ASA_ID.test(req.params[0] ?? "") ? null : "path parameter must be a numeric application id"),
-  ],
-  [
-    "GET",
-    /^\/api\/app-risk\/(.*)$/,
-    (req) => (ASA_ID.test(req.params[0] ?? "") ? null : "path parameter must be a numeric application id"),
-  ],
-  [
-    "GET",
-    /^\/api\/cluster\/(.*)$/,
-    (req) =>
-      ALGORAND_ADDRESS.test(req.params[0] ?? "")
-        ? null
-        : "path parameter must be a 58-character Algorand address",
-  ],
-  [
-    "GET",
-    /^\/api\/trace\/(.*)$/,
-    (req) => {
-      if (!ALGORAND_ADDRESS.test(req.params[0] ?? "")) {
-        return "path parameter must be a 58-character Algorand address";
-      }
-      const hops = req.query.hops;
-      if (hops !== undefined && !/^[1-4]$/.test(String(hops))) {
-        return "hops must be an integer from 1 to 4";
-      }
-      const asset = req.query.asset;
-      if (asset !== undefined && String(asset) !== "algo" && !ASA_ID.test(String(asset))) {
-        return 'asset must be "algo" or a numeric ASA id';
-      }
-      return null;
-    },
-  ],
-  [
-    "GET",
-    /^\/api\/trace\/(.*)$/,
-    (req) => {
-      if (!ALGORAND_ADDRESS.test(req.params[0] ?? "")) {
-        return "path parameter must be a 58-character Algorand address";
-      }
-      const hops = req.query.hops;
-      if (hops !== undefined && !/^[1-4]$/.test(String(hops))) {
-        return "hops must be an integer from 1 to 4";
-      }
-      const asset = req.query.asset;
-      if (asset !== undefined && String(asset) !== "algo" && !ASA_ID.test(String(asset))) {
-        return 'asset must be "algo" or a numeric ASA id';
-      }
-      return null;
-    },
-  ],
-  [
-    "GET",
-    /^\/api\/explain-tx\/(.*)$/,
-    (req) =>
-      ALGORAND_TXID.test((req.params[0] ?? "").toUpperCase())
-        ? null
-        : "path parameter must be a 52-character Algorand transaction id",
-  ],
-  [
-    "GET",
-    /^\/api\/asset-risk\/(.*)$/,
-    (req) => (ASA_ID.test(req.params[0] ?? "") ? null : "path parameter must be a numeric ASA id"),
-  ],
-  [
-    "GET",
-    /^\/api\/asset\/(.*)$/,
-    (req) => (ASA_ID.test(req.params[0] ?? "") ? null : "path parameter must be a numeric ASA id"),
-  ],
-  [
-    "GET",
-    /^\/api\/relationship$/,
-    (req) => {
-      const a = String(req.query.a ?? "");
-      const b = String(req.query.b ?? "");
-      if (!ALGORAND_ADDRESS.test(a)) return "query parameter 'a' must be a 58-character Algorand address";
-      if (!ALGORAND_ADDRESS.test(b)) return "query parameter 'b' must be a 58-character Algorand address";
-      if (a === b) return "addresses 'a' and 'b' must be different";
-      return null;
-    },
-  ],
-  [
-    "POST",
-    /^\/api\/verify-payment$/,
-    (req) => {
-      const b = req.body || {};
-      if (!ALGORAND_TXID.test(String(b.txid ?? "").toUpperCase())) {
-        return "'txid' must be a 52-character Algorand transaction id";
-      }
-      const hasExpectation =
-        b.expectedSender !== undefined ||
-        b.expectedReceiver !== undefined ||
-        b.expectedAsset !== undefined ||
-        b.expectedAmount !== undefined;
-      return hasExpectation
-        ? null
-        : "at least one of expectedSender, expectedReceiver, expectedAsset, expectedAmount is required";
-    },
-  ],
-  [
-    "POST",
-    /^\/api\/nl-to-sql$/,
-    (req) => {
-      const b = req.body || {};
-      if (!String(b.question ?? "").trim()) return "'question' is required";
-      if (!String(b.schema ?? "").trim()) return "'schema' is required";
-      return null;
-    },
-  ],
-  [
-    "POST",
-    /^\/api\/code-review$/,
-    (req) => {
-      const b = req.body || {};
-      const name = /^[A-Za-z0-9._-]+$/;
-      if (!name.test(String(b.owner ?? ""))) return "'owner' is required and must be a valid GitHub owner name";
-      if (!name.test(String(b.repo ?? ""))) return "'repo' is required and must be a valid GitHub repository name";
-      if (!Number.isInteger(Number(b.pull)) || Number(b.pull) <= 0) {
-        return "'pull' must be a positive integer";
-      }
-      return null;
-    },
-  ],
-  [
-    "POST",
-    /^\/api\/inference$/,
-    (req) => (String(req.body?.prompt ?? "").trim() ? null : "'prompt' is required"),
-  ],
-  [
-    "POST",
-    /^\/api\/summarize$/,
-    (req) => (String(req.body?.text ?? "").trim() ? null : "'text' is required"),
-  ],
-];
-
 app.use((req, res, next) => {
   // Only vet the request when payment was actually attempted.
   //
@@ -946,19 +783,9 @@ app.use((req, res, next) => {
   // The challenge is how a resource advertises itself, so it has to come first.
   if (!req.headers["payment-signature"]) return next();
 
-  for (const [method, pattern, check] of PRE_PAYMENT_CHECKS) {
-    if (req.method !== method) continue;
-    const match = pattern.exec(req.path);
-    if (!match) continue;
-    const problem = check({
-      params: match.slice(1),
-      body: req.body,
-      query: req.query,
-    });
-    if (problem) {
-      return res.status(400).json({ error: problem, charged: false });
-    }
-    break;
+  const problem = validatePaidRequestShape(req.method, req.path, req.body, req.query);
+  if (problem) {
+    return res.status(400).json({ error: problem, charged: false });
   }
   next();
 });
@@ -973,6 +800,9 @@ app.post("/api/inference", async (req, res) => {
   const { prompt } = req.body || {};
   if (!prompt || typeof prompt !== "string") {
     return res.status(400).json({ error: "Missing 'prompt' string in request body." });
+  }
+  if (prompt.length > 8_000) {
+    return res.status(400).json({ error: "Prompt too long; max 8,000 characters." });
   }
 
   try {
@@ -993,6 +823,12 @@ app.post("/api/summarize", async (req, res) => {
   }
   if (text.length > 50_000) {
     return res.status(400).json({ error: "Text too long; max 50,000 characters." });
+  }
+  if (maxWords !== undefined && (!Number.isFinite(maxWords) || maxWords < 10 || maxWords > 1_000)) {
+    return res.status(400).json({ error: "maxWords must be a number from 10 to 1000." });
+  }
+  if (style !== undefined && !["concise", "bullets", "detailed"].includes(style)) {
+    return res.status(400).json({ error: "style must be concise, bullets, or detailed." });
   }
 
   let systemPrompt =
@@ -1326,11 +1162,48 @@ app.get("/llms.txt", (req, res) => {
   res.type("text/plain").send(renderLlmsTxt(publicOrigin(req)));
 });
 
-app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok" });
+type DependencyHealth = { ok: boolean; status: number | null; latencyMs: number };
+let healthCache: { expires: number; payload: unknown } | null = null;
+
+async function dependencyHealth(url: string): Promise<DependencyHealth> {
+  const started = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3_000);
+  try {
+    const response = await fetch(url, { method: "GET", signal: controller.signal });
+    return { ok: response.status < 500, status: response.status, latencyMs: Date.now() - started };
+  } catch {
+    return { ok: false, status: null, latencyMs: Date.now() - started };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+app.get("/api/health", async (_req, res) => {
+  const now = Date.now();
+  if (healthCache && healthCache.expires > now) return res.json(healthCache.payload);
+
+  const [indexer, facilitator] = await Promise.all([
+    dependencyHealth(`${INDEXER_URL}/health`),
+    dependencyHealth(FACILITATOR_URL),
+  ]);
+  const operational = indexer.ok && facilitator.ok;
+  const payload = {
+    status: operational ? "ok" : "degraded",
+    network: NETWORK,
+    dependencies: {
+      indexer,
+      facilitator,
+      anthropic: { configured: HAS_ANTHROPIC_KEY },
+      github: { authenticated: Boolean(process.env.GITHUB_TOKEN) },
+    },
+    checkedAt: new Date().toISOString(),
+  };
+  healthCache = { expires: now + 30_000, payload };
+  res.status(operational ? 200 : 503).json(payload);
 });
 
-app.listen(PORT, () => {
+if (require.main === module) app.listen(PORT, () => {
   console.log(`AgentHub resource server running on http://localhost:${PORT}`);
   console.log(`Network: ${IS_MAINNET ? "MAINNET" : "TESTNET"} (${NETWORK})`);
   console.log(`USDC ASA: ${USDC_ASA_ID}`);

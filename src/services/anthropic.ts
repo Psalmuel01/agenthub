@@ -9,10 +9,11 @@
  * this throws an AnthropicError and the route handler maps it to HTTP 502.
  */
 
+import { fetchWithTimeout } from "./fetch-timeout";
+
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
 const MODEL = "claude-haiku-4-5";
-
 export class AnthropicError extends Error {
   constructor(message: string) {
     super(message);
@@ -59,7 +60,7 @@ export async function anthropicComplete(
 
   let resp: Response;
   try {
-    resp = await fetch(ANTHROPIC_API_URL, {
+    resp = await fetchWithTimeout(ANTHROPIC_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -67,7 +68,7 @@ export async function anthropicComplete(
         "anthropic-version": ANTHROPIC_VERSION,
       },
       body: JSON.stringify(body),
-    });
+    }, 30_000);
   } catch (err) {
     throw new AnthropicError(`request to Anthropic failed: ${String(err)}`);
   }

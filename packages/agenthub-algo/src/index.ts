@@ -16,6 +16,21 @@ export {
   type ExplainTxResult,
   type TransferDetail,
   type SummarizeOptions,
+  type VerifyPaymentRequest,
+  type VerifyPaymentResult,
+  type AssetRiskResult,
+  type AssetInfoResult,
+  type PortfolioResult,
+  type RelationshipResult,
+  type CodeReviewRequest,
+  type CodeReviewResult,
+  type NlToSqlRequest,
+  type NlToSqlResult,
+  type AppInfoResult,
+  type AppRiskResult,
+  type TraceOptions,
+  type TraceResult,
+  type ClusterResult,
 } from "./client";
 
 export { TOOL_DEFINITIONS, executeTool, type ToolDefinition } from "./tools";

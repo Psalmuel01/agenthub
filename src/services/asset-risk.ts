@@ -109,6 +109,28 @@ export interface AssetRiskResult {
   signals: AssetRiskSignals;
 }
 
+export function scoreAssetSignals(signals: AssetRiskSignals): Pick<AssetRiskResult, "riskScore" | "riskLevel"> {
+  let score = 0;
+  if (signals.clawbackEnabled) score += 30;
+  if (signals.freezeEnabled) score += 20;
+  if (signals.defaultFrozen) score += 10;
+  if (signals.managerCanReconfigure) score += 15;
+  const pct = signals.topHolderPct;
+  if (pct !== null) {
+    if (pct > 90) score += 25;
+    else if (pct > 75) score += 15;
+    else if (pct > 50) score += 8;
+  }
+  const age = signals.creatorAgeDays;
+  if (age !== null) {
+    if (age < 7) score += 25;
+    else if (age < 30) score += 15;
+    else if (age < 90) score += 8;
+  }
+  const riskScore = Math.max(0, Math.min(100, score));
+  return { riskScore, riskLevel: riskScore < 30 ? "low" : riskScore < 70 ? "medium" : "high" };
+}
+
 function isEnabled(role: unknown): boolean {
   return typeof role === "string" && role.length > 0 && role !== ZERO_ADDRESS;
 }
@@ -257,30 +279,12 @@ export async function scoreAsset(asaIdInput: string): Promise<AssetRiskResult> {
     }
   }
 
-  // --- Score (see comment block at top of file) ---------------------------
-  let score = 0;
-
-  if (clawbackEnabled) score += 30;
-  if (freezeEnabled) score += 20;
-  if (defaultFrozen) score += 10;
-  if (managerCanReconfigure) score += 15;
-
-  const pct = concentration.pct;
-  if (pct !== null) {
-    if (pct > 90) score += 25;
-    else if (pct > 75) score += 15;
-    else if (pct > 50) score += 8;
-  }
-
-  if (creatorAgeDays !== null) {
-    if (creatorAgeDays < 7) score += 25;
-    else if (creatorAgeDays < 30) score += 15;
-    else if (creatorAgeDays < 90) score += 8;
-  }
-
-  const riskScore = Math.max(0, Math.min(100, score));
-  const riskLevel: AssetRiskResult["riskLevel"] =
-    riskScore < 30 ? "low" : riskScore < 70 ? "medium" : "high";
+  const signals: AssetRiskSignals = {
+    clawbackEnabled, freezeEnabled, defaultFrozen, managerCanReconfigure,
+    topHolderPct: concentration.pct, holdersSampled: concentration.sampled,
+    concentrationExact: concentration.exact, creatorAgeDays,
+  };
+  const { riskScore, riskLevel } = scoreAssetSignals(signals);
 
   const result: AssetRiskResult = {
     asaId,
@@ -289,16 +293,7 @@ export async function scoreAsset(asaIdInput: string): Promise<AssetRiskResult> {
     creator,
     riskScore,
     riskLevel,
-    signals: {
-      clawbackEnabled,
-      freezeEnabled,
-      defaultFrozen,
-      managerCanReconfigure,
-      topHolderPct: concentration.pct,
-      holdersSampled: concentration.sampled,
-      concentrationExact: concentration.exact,
-      creatorAgeDays,
-    },
+    signals,
   };
 
   // Cached only on success — the error paths above throw before reaching here.
