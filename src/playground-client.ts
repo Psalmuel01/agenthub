@@ -764,9 +764,7 @@ function renderRunAllCost() {
 }
 
 function setRunnerEnabled(on) {
-  const anyPaid = catalog.some(isPaid);
   $("run-all").disabled = !on || running;
-  $("run-exhaust").disabled = !on || running || !anyPaid;
 }
 
 function setRunning(on) {
@@ -913,97 +911,9 @@ async function runAll() {
   }
 }
 
-async function runExhaust() {
-  if (!account) return;
-
-  const capRaw = $("cap").value.trim();
-  const cap = capRaw === "" ? null : Number(capRaw);
-  if (cap !== null && !(cap > 0)) {
-    alert("Cap must be a positive number of USDC, or empty for no cap.");
-    return;
-  }
-
-  let budget = balances ? balances.usdc : 0;
-  if (cap !== null) budget = Math.min(budget, cap);
-
-  if (round6(budget) < round6(cheapestPrice())) {
-    alert("Balance of $" + budget.toFixed(6) + " does not cover the cheapest endpoint ($" +
-          cheapestPrice().toFixed(2) + ").");
-    return;
-  }
-  if (!confirm(
-    "Load test\n\nThis will spend up to $" + budget.toFixed(2) + " USDC from " +
-    account.slice(0, 8) + "…" + account.slice(-6) +
-    (cap === null ? " — the wallet's whole balance, as no spend limit was set." : " (your spend limit).") +
-    "\n\nPayments are approved in batches of " + BATCH_SIZE +
-    ", so expect one wallet prompt per batch.\n\nStart?"
-  )) return;
-
-  setRunning(true);
-  $("log-panel").classList.remove("hide");
-
-  let calls = 0, spent = 0;
-  const weights = sessionWeights(catalog.filter(isPaid));
-  try {
-    const http = makeHttpClient();
-
-    while (!cancelled) {
-      const chunk = [];
-      let planning = budget;
-      while (chunk.length < BATCH_SIZE) {
-        const options = affordable(planning);
-        if (!options.length) break;
-        const pick = weightedPick(options, weights);
-        chunk.push(pick);
-        planning -= pick.priceUsd;
-      }
-      if (!chunk.length) break;
-
-      let refused = false;
-      await runBatched(http, chunk, (result) => {
-        calls++;
-        const entry = catalog.find((e) => e.name === result.name);
-        if (result.ok && entry) { budget -= entry.priceUsd; spent += entry.priceUsd; }
-        else refused = true;
-        showOutput(result.name, result);
-        logLine(result);
-      });
-      if (refused) break;
-    }
-  } finally {
-    const parts = [calls + " calls", "$" + spent.toFixed(2) + " spent"];
-    if (cancelled) parts.push("stopped early");
-    else if (round6(budget) < round6(cheapestPrice())) parts.push("budget exhausted");
-    $("log-summary").textContent = parts.join(" · ");
-    setStatus("");
-    setRunning(false);
-    await refreshBalances();
-  }
-}
-
-function sessionWeights(entries) {
-  const w = new Map();
-  for (const e of entries) {
-    w.set(e.name, 0.15 + Math.random() * Math.random() * 3);
-  }
-  return w;
-}
-
-function weightedPick(entries, weights) {
-  let total = 0;
-  for (const e of entries) total += weights.get(e.name) ?? 1;
-  let r = Math.random() * total;
-  for (const e of entries) {
-    r -= weights.get(e.name) ?? 1;
-    if (r <= 0) return e;
-  }
-  return entries[entries.length - 1];
-}
-
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 $("run-all").onclick = runAll;
-$("run-exhaust").onclick = runExhaust;
 $("endpoint-search").oninput = renderEndpoints;
 $("endpoint-filter").onchange = renderEndpoints;
 

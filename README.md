@@ -271,6 +271,9 @@ npm run build && npm start
 Drive the full x402 flow against a running server:
 
 ```bash
+npm run run-all -- --dry
+npm run run-all -- --yes --only=wallet-risk
+
 npm run test-client -- /api/wallet-risk/<ADDRESS>
 npm run test-client -- /api/asset-risk/<ASA_ID>
 npm run test-client -- /api/explain-tx/<TXID>
@@ -282,6 +285,21 @@ npm run test-client -- /api/nl-to-sql
 # The portfolio endpoint is free — call it directly.
 curl http://localhost:3000/api/portfolio/<ADDRESS>
 ```
+
+### Competition-safe testing
+
+- Use `npm run run-all -- --dry` for routine production checks. It verifies the
+  402 challenges and quoted prices without settling payments.
+- Use testnet for load, soak, concurrency, retry, and multi-wallet testing.
+- A paid smoke test requires `--yes` and calls each selected endpoint at most
+  once. Run it only after a meaningful release or payment-path change.
+- Record wallets and transactions used for controlled mainnet tests. Never
+  report controlled calls, self-payments, or test wallets as customer adoption.
+- Repeated-spend and wallet-exhaustion modes are intentionally unsupported.
+
+These controls do not alter historical on-chain activity. They prevent the
+project's own tooling from creating further traffic that could be mistaken for
+real customer demand or leaderboard usage.
 
 > **Match `ALGOD_URL` to `X402_NETWORK`.** Signing against testnet algod while the server
 > quotes mainnet produces a mismatched genesis hash, and the facilitator rejects the

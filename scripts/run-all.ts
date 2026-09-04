@@ -2,20 +2,18 @@
  * Exercise every AgentHub endpoint in one run.
  *
  * Same x402 flow as test-client.ts (402 -> sign -> retry), but sequential over
- * all eleven routes with a single process start, so the TypeScript compile cost
- * is paid once instead of eleven times.
+ * every catalog route once with a single process start, so the TypeScript
+ * compile cost is paid once instead of once per route.
  *
  * Usage:
- *   npm run run-all                  # every endpoint the wallet can afford
+ *   npm run run-all -- --yes         # every endpoint once, with payment
  *   npm run run-all -- --dry         # 402 quotes only, no payment, no spend
- *   npm run run-all -- --all         # attempt every endpoint regardless of balance
- *   npm run run-all -- --only=asset-risk,portfolio
+ *   npm run run-all -- --yes --only=asset-risk,portfolio
  *
- *   npm run run-exhaust
- *   npm run run-exhaust -- --max-spend=0.10
- *
- * Paid runs spend real USDC on mainnet; --dry verifies routes and quotes
- * without spending.
+ * Paid runs spend real USDC on mainnet and require --yes. The runner makes at
+ * most one call to each selected endpoint. Repeated/load modes are deliberately
+ * unsupported: competition testing belongs on testnet, and controlled mainnet
+ * traffic must never be represented as customer adoption or leaderboard usage.
  *
  * BUDGET PREFLIGHT. Before spending anything the runner reads the payer's ALGO
  * and USDC balances on chain and runs only what the balance covers, reporting
@@ -39,11 +37,8 @@ const SETTLE_GAP_MS = 2_000;
 const DRY = process.argv.includes("--dry");
 /** Skip the budget preflight and attempt every selected endpoint. */
 const IGNORE_BUDGET = process.argv.includes("--all");
-const EXHAUST = process.argv.includes("--exhaust");
 const CONFIRMED = process.argv.includes("--yes");
 const onlyArg = process.argv.find((a) => a.startsWith("--only="));
-const maxSpendArg = process.argv.find((a) => a.startsWith("--max-spend="));
-const MAX_SPEND = maxSpendArg ? Number(maxSpendArg.slice("--max-spend=".length)) : null;
 const ONLY = onlyArg ? onlyArg.slice("--only=".length).split(",").map((s) => s.trim()) : null;
 
 const baseUrl = (process.env.AGENTHUB_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
@@ -55,8 +50,6 @@ const baseUrl = (process.env.AGENTHUB_BASE_URL || "http://localhost:3000").repla
  * microALGO. This is a floor for warning, not an exact cost.
  */
 const MIN_ALGO = 0.05;
-
-const BIG_BALANCE = 5;
 
 const indexerUrl = (process.env.INDEXER_URL || "https://mainnet-idx.algonode.cloud").replace(/\/$/, "");
 
@@ -290,81 +283,6 @@ function planWithinBudget(calls: Call[], usdc: number): { run: Call[]; skip: Cal
   };
 }
 
-function sessionWeights(calls: Call[]): Map<string, number> {
-  const w = new Map<string, number>();
-  for (const c of calls) w.set(c.name, 0.15 + Math.random() * Math.random() * 3);
-  return w;
-}
-
-function weightedPick(calls: Call[], weights: Map<string, number>): Call {
-  let total = 0;
-  for (const c of calls) total += weights.get(c.name) ?? 1;
-  let r = Math.random() * total;
-  for (const c of calls) {
-    r -= weights.get(c.name) ?? 1;
-    if (r <= 0) return c;
-  }
-  return calls[calls.length - 1];
-}
-
-async function runExhaust(
-  http: x402HTTPClient,
-  calls: Call[],
-  payer: string,
-  startingBudget: number,
-): Promise<Outcome[]> {
-  const paid = calls.filter((c) => c.price > 0);
-  const cheapest = Math.min(...paid.map((c) => c.price));
-  const results: Outcome[] = [];
-  const weights = sessionWeights(paid);
-  let budget = startingBudget;
-  let spent = 0;
-
-  while (true) {
-    const affordable = paid.filter((c) => Math.round(budget * 1e6) >= Math.round(c.price * 1e6));
-    if (affordable.length === 0) {
-      console.log(
-        MAX_SPEND !== null
-          ? `\nReached --max-spend=${MAX_SPEND}: spent $${spent.toFixed(2)}, ` +
-            `$${budget.toFixed(6)} of the cap left (cheapest is $${cheapest.toFixed(2)}).`
-          : `\nBudget exhausted: $${budget.toFixed(6)} left, ` +
-            `cheapest endpoint costs $${cheapest.toFixed(2)}.`,
-      );
-      break;
-    }
-
-    const call = weightedPick(affordable, weights);
-    console.log(
-      `\n[call ${results.length + 1}] budget $${budget.toFixed(6)} — ` +
-        `${affordable.length} affordable, picked ${call.name} ($${call.price.toFixed(2)})`,
-    );
-
-    if (results.length > 0) await new Promise((r) => setTimeout(r, SETTLE_GAP_MS));
-
-    let outcome: Outcome;
-    try {
-      outcome = await runCall(http, call, payer);
-    } catch (err: any) {
-      console.log(`  error: ${err?.message ?? err}`);
-      outcome = { name: call.name, status: "ERR", ms: 0, note: String(err?.message ?? err).slice(0, 60) };
-    }
-    results.push(outcome);
-
-    if (outcome.status === 200) {
-      budget -= call.price;
-      spent += call.price;
-    } else {
-      console.log("\nStopping: that call did not settle, so the balance is unchanged.");
-      console.log("Nothing further would succeed this pass — see the diagnosis above.");
-      break;
-    }
-
-  }
-
-  console.log(`\nSpent $${spent.toFixed(2)} USDC across ${results.length} calls.`);
-  return results;
-}
-
 function preview(text: string, max = 220): string {
   const oneLine = text.replace(/\s+/g, " ").trim();
   return oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine;
@@ -506,10 +424,8 @@ async function runCall(http: x402HTTPClient, call: Call, payer: string): Promise
 /**
  * Print the result table and exit non-zero if anything genuinely failed.
  *
- * Shared by the sweep and the exhaust loop. Skipped endpoints are listed but do
- * not count as failures: a run trimmed to fit the balance is a clean result.
- * In exhaust mode the same endpoint appears once per call, which is intended —
- * the table is a call log there, not a checklist.
+ * Skipped endpoints do not count as failures: a run trimmed to fit the balance
+ * is a clean result.
  */
 function summarise(results: Outcome[], skipped: Call[], payer = "", fullCost = 0): void {
   // Report skips in the table too, so the summary always accounts for every
@@ -553,24 +469,28 @@ function summarise(results: Outcome[], skipped: Call[], payer = "", fullCost = 0
   if (skipped.length > 0) {
     console.log(`All ${ran} endpoints that fit the budget passed. ${skipped.length} skipped for funds.`);
     console.log(`Top up ${payer.slice(0, 8)}… with ~$${fullCost.toFixed(2)} USDC to sweep all ${results.length}.`);
-  } else if (EXHAUST) {
-    console.log(`All ${ran} calls OK — balance spent down.`);
   } else {
     console.log(`All ${ran} endpoints OK.`);
   }
 }
 
 async function main() {
-  // Validated here rather than at module scope: a top-level throw escapes the
-  // catch below, and ts-node-dev respawns the process instead of exiting, so a
-  // typo in --max-spend hangs the terminal rather than reporting itself.
-  if (MAX_SPEND !== null && !(MAX_SPEND > 0)) {
-    throw new Error(`--max-spend must be a positive number of USDC, got "${maxSpendArg}"`);
+  if (process.argv.includes("--exhaust") || process.argv.some((a) => a.startsWith("--max-spend="))) {
+    throw new Error(
+      "Repeated/load payment modes were removed. Use --dry for routine checks, " +
+        "testnet for load testing, or a single confirmed smoke sweep with --yes.",
+    );
   }
 
   const mnemonic = process.env.AVM_CLIENT_MNEMONIC;
   if (!DRY && !mnemonic) {
     throw new Error("AVM_CLIENT_MNEMONIC is required for a paid run (use --dry to skip payment).");
+  }
+  if (!DRY && !CONFIRMED) {
+    throw new Error(
+      "A paid smoke sweep makes real mainnet payments. Re-run with --yes, or use --dry " +
+        "for 402 quote checks with no payment.",
+    );
   }
 
   const catalog = await fetchCatalog();
@@ -602,7 +522,6 @@ async function main() {
   // Decide what this wallet can actually pay for before spending anything.
   let selected = requested;
   let skipped: Call[] = [];
-  let budget: number | null = null;
   const fullCost = requested.reduce((sum, c) => sum + c.price, 0);
 
   if (DRY) {
@@ -635,9 +554,7 @@ async function main() {
         );
       }
 
-      budget = MAX_SPEND !== null ? Math.min(usdc, MAX_SPEND) : usdc;
-
-      if (!IGNORE_BUDGET && !EXHAUST) {
+      if (!IGNORE_BUDGET) {
         const plan = planWithinBudget(requested, usdc);
         selected = plan.run;
         skipped = plan.skip;
@@ -645,35 +562,7 @@ async function main() {
     }
   }
 
-  if (EXHAUST) {
-    if (DRY) throw new Error("--exhaust spends real USDC and cannot be combined with --dry.");
-    if (requested.every((c) => c.price === 0)) {
-      throw new Error("--exhaust needs at least one paid endpoint; the selection is all free routes.");
-    }
-    if (budget === null) {
-      throw new Error(
-        "--exhaust needs the wallet balance to know when to stop, and the indexer " +
-          "could not be reached. Retry, or set INDEXER_URL to a reachable node.",
-      );
-    }
-    if (budget > BIG_BALANCE && !CONFIRMED) {
-      throw new Error(
-        `refusing to exhaust $${budget.toFixed(2)} USDC without confirmation.\n` +
-          `--exhaust spends the balance down to the cheapest endpoint's price ($0.02).\n` +
-          "Re-run with --yes to confirm, or bound it: --max-spend=0.50",
-      );
-    }
-  }
-
-  if (EXHAUST) {
-    const cheapest = Math.min(...requested.filter((c) => c.price > 0).map((c) => c.price));
-    console.log(`Endpoints  : ${requested.filter((c) => c.price > 0).length} paid (free routes excluded)`);
-    console.log(
-      `Mode       : EXHAUST — random endpoint per call until under $${cheapest.toFixed(2)}` +
-        (MAX_SPEND !== null ? `, capped at $${MAX_SPEND.toFixed(2)}` : ""),
-    );
-    console.log(`Budget     : $${budget!.toFixed(6)}`);
-  } else if (!DRY) {
+  if (!DRY) {
     const spend = selected.reduce((sum, c) => sum + c.price, 0);
     if (skipped.length > 0) {
       const paidCount = selected.filter((c) => c.price > 0).length;
@@ -692,7 +581,7 @@ async function main() {
     }
   }
 
-  if (!EXHAUST && selected.length === 0) {
+  if (selected.length === 0) {
     console.log("\nNothing to run: the balance does not cover any paid endpoint.");
     console.log(`Top up ${payer} with USDC (ASA ${USDC_ASA}), or use --dry for a free pass.`);
     return;
@@ -709,12 +598,6 @@ async function main() {
   }
 
   const http = new x402HTTPClient(core);
-
-  if (EXHAUST) {
-    const results = await runExhaust(http, requested, payer, budget!);
-    summarise(results, []);
-    return;
-  }
 
   const results: Outcome[] = [];
   for (const [i, call] of selected.entries()) {

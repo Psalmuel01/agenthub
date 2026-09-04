@@ -3,8 +3,8 @@
  *
  * WHY A PAGE. The CLI runners require cloning the repo and putting a mnemonic in
  * .env, which is fine for us and unusable for anyone else. This page offers the
- * same modes (single call, full run, and a bounded load test) to someone who
- * has only a wallet.
+ * same single-call and one-pass smoke-test modes to someone who has only a
+ * wallet. Repeated paid load testing is deliberately not exposed on mainnet.
  *
  * NO KEY EVER LEAVES THE WALLET. There is deliberately no mnemonic input here.
  * The wallet signs; the page holds no key; the server receives no key. Asking a
@@ -42,7 +42,7 @@ const STYLES = `
   .workspace{display:grid;grid-template-columns:330px minmax(0,1fr);gap:17px;align-items:start}.sidebar{position:sticky;top:18px}.panel{background:linear-gradient(145deg,rgba(17,33,30,.82),rgba(10,20,18,.9));border:1px solid var(--line);border-radius:15px;padding:20px;margin-bottom:13px;box-shadow:0 18px 48px rgba(0,0,0,.12)}.panel-label{font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:#6f8b84;margin-bottom:16px;display:block}.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.spread{justify-content:space-between}.grow{flex:1 1 auto;min-width:0}.muted{color:var(--muted)}.small{font-size:12px}.tiny{font-size:10px}.mono{font-family:var(--mono);overflow-wrap:anywhere}
   button{font:700 12px var(--sans);cursor:pointer;min-height:39px;padding:0 14px;border:0;border-radius:9px;color:#042019;background:linear-gradient(135deg,var(--accent-2),var(--accent));box-shadow:0 8px 22px rgba(37,216,180,.1);transition:transform .16s,opacity .16s,border-color .16s}button:hover:not(:disabled){transform:translateY(-1px)}button:disabled{opacity:.35;cursor:not-allowed;box-shadow:none}button.secondary{color:#b9ccc7;background:rgba(255,255,255,.02);border:1px solid var(--line-strong);box-shadow:none}button.secondary:hover:not(:disabled){border-color:rgba(133,245,217,.4)}button.small{min-height:34px;padding:0 12px;font-size:11px}
   select,input[type=text],input[type=number],textarea{width:100%;color:#dce8e5;background:#081310;border:1px solid var(--line);border-radius:8px;padding:9px 10px;font:11px/1.5 var(--mono);outline:none;transition:border-color .16s,box-shadow .16s}select:focus,input:focus,textarea:focus{border-color:rgba(37,216,180,.55);box-shadow:0 0 0 3px rgba(37,216,180,.08)}select{max-width:100%}textarea{resize:vertical;min-height:94px}.stat{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;font-size:12px}.stat>div{background:rgba(3,11,9,.42);border:1px solid var(--line);border-radius:9px;padding:10px}.stat b{display:block;color:#67837c;font:700 9px var(--mono);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px}
-  #wallet-warn{border:1px solid currentColor;border-radius:9px;padding:10px 11px;line-height:1.45}#runner-panel button{width:100%}#runner-panel .row{width:100%}#run-all-cost{display:block;margin:7px 0 0;text-align:center}#stop{margin-top:8px}details#load-test{border-top:1px solid var(--line);padding-top:14px;margin-top:17px!important}details#load-test summary{cursor:pointer;font-weight:700;color:#7f9992;list-style:none}details#load-test summary:after{content:" +";color:var(--accent)}details#load-test[open] summary:after{content:" −"}#cap{width:100%!important}.run-note{font-size:10px;color:#6f8882;line-height:1.5;margin:13px 0 0}
+  #wallet-warn{border:1px solid currentColor;border-radius:9px;padding:10px 11px;line-height:1.45}#runner-panel button{width:100%}#runner-panel .row{width:100%}#run-all-cost{display:block;margin:7px 0 0;text-align:center}#stop{margin-top:8px}.run-note{font-size:10px;color:#6f8882;line-height:1.5;margin:13px 0 0}
   .catalog-head{display:flex;justify-content:space-between;align-items:end;gap:30px;margin:2px 0 16px}.catalog-head h2{font-size:23px;letter-spacing:-.035em;margin:0}.catalog-head p{font-size:11px;color:var(--muted);margin:0}.endpoint-count{font:700 10px var(--mono);color:var(--accent);text-transform:uppercase;letter-spacing:.08em}.catalog-tools{display:grid;grid-template-columns:1fr 155px;gap:8px;margin-bottom:10px}.catalog-tools input,.catalog-tools select{height:39px}.endpoint-grid{display:grid}.empty-state{padding:34px;border:1px dashed var(--line-strong);border-radius:13px;text-align:center;color:var(--muted);font-size:12px}.ep{position:relative;border:1px solid var(--line);border-radius:13px;padding:19px 20px;margin-bottom:10px;background:linear-gradient(145deg,rgba(15,29,26,.7),rgba(9,18,16,.82));transition:border-color .18s,transform .18s}.ep:hover{border-color:rgba(133,245,217,.28);transform:translateY(-1px)}.ep-head{display:flex;gap:13px;align-items:center;justify-content:space-between}.ep-name{font-weight:720;letter-spacing:-.01em}.ep-route{font-size:10px;margin-top:6px;color:#6f8982}.method{color:var(--accent);font-weight:800}.price{font:700 10px var(--mono);color:#bdcfca;white-space:nowrap;border:1px solid var(--line);padding:3px 8px;border-radius:999px}.price.free{color:var(--accent-2);border-color:rgba(37,216,180,.28);background:rgba(37,216,180,.06)}.ep-desc{color:#879f99;font-size:11px;line-height:1.55;margin:13px 0}.ep-body{margin:13px 0}.ep .row{border-top:1px solid var(--line);padding-top:13px;margin-top:12px}.ep .row button{min-width:112px}.out{margin-top:14px;border-top:1px solid var(--line);padding-top:13px;font-size:11px}.out>div:first-child{font-weight:700}.out pre{margin-top:10px}
   pre{background:#050c0a;border:1px solid var(--line);border-radius:9px;padding:13px;overflow:auto;font:10px/1.6 var(--mono);max-height:310px}.ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--err)}.log{font-size:11px;max-height:380px;overflow-y:auto}.log-row{display:grid;grid-template-columns:16px minmax(100px,.7fr) auto 1.3fr;gap:8px;padding:9px 0;border-bottom:1px solid var(--line);align-items:start}.log-row:last-child{border:0}.log-name{font-weight:700}.hide{display:none!important}.footer{display:flex;justify-content:space-between;gap:20px;border-top:1px solid var(--line);padding:28px 0 46px;margin-top:60px;color:#6f8882;font-size:11px}.footer a:hover{color:var(--accent)}
   @media(max-width:880px){.hero{align-items:start}.security-pill{display:none}.workspace{grid-template-columns:1fr}.sidebar{position:static;display:grid;grid-template-columns:1fr 1fr;gap:12px}.sidebar .panel{margin:0}.prep{grid-template-columns:1fr}.ep-desc{font-size:12px}}
@@ -96,7 +96,7 @@ export function renderPlayground(opts: {
   <section class="prep" aria-label="Wallet requirements">
     <div class="prep-card"><span class="prep-num">01</span><div><strong>Algorand USDC</strong><span>ASA ${opts.usdcAsaId}; USDC on other chains cannot settle these calls.</span></div></div>
     <div class="prep-card"><span class="prep-num">02</span><div><strong>About 0.25 ALGO</strong><span>Held for account and asset minimums—not consumed as AgentHub fees.</span></div></div>
-    <div class="prep-card"><span class="prep-num">03</span><div><strong>One wallet approval</strong><span>Multi-tool runs batch payment signatures to reduce interruptions.</span></div></div>
+    <div class="prep-card"><span class="prep-num">03</span><div><strong>Batched approvals</strong><span>Multi-tool runs group payment signatures to reduce interruptions.</span></div></div>
   </section>
 
   <section class="workspace">
@@ -125,17 +125,8 @@ export function renderPlayground(opts: {
         <span id="run-all-cost" class="tiny muted"></span>
         <button id="stop" class="secondary hide">Stop current run</button>
 
-        <details id="load-test">
-          <summary class="small muted">Advanced load testing</summary>
-          <div style="margin-top:11px">
-            <p class="tiny muted" style="margin:0 0 10px">Repeatedly calls random paid endpoints until the limit or wallet balance is reached. Set a cap before starting.</p>
-            <label class="tiny muted" for="cap">Maximum spend in USDC</label>
-            <input id="cap" type="number" min="0" step="0.01" placeholder="Optional — empty uses balance" inputmode="decimal" style="margin:5px 0 8px">
-            <button id="run-exhaust" class="secondary small" disabled>Start load test</button>
-          </div>
-        </details>
         <div id="run-status" class="small hide" style="margin-top:12px;color:var(--accent);font-weight:700"></div>
-        <p class="run-note">Runs stop on the first refusal. Individual endpoint buttons remain available below.</p>
+        <p class="run-note">One-pass runs call each affordable endpoint at most once, with batched wallet approvals. Runs stop on the first refusal.</p>
       </div>
     </aside>
 
