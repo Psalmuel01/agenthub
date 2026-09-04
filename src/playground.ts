@@ -3,8 +3,8 @@
  *
  * WHY A PAGE. The CLI runners require cloning the repo and putting a mnemonic in
  * .env, which is fine for us and unusable for anyone else. This page offers the
- * same modes (single call, full run, and a bounded load test) to someone who
- * has only a wallet.
+ * the same single-call and one-pass smoke-test modes to someone who has only a
+ * wallet. Repeated paid load testing is deliberately not exposed on mainnet.
  *
  * NO KEY EVER LEAVES THE WALLET. There is deliberately no mnemonic input here.
  * The wallet signs; the page holds no key; the server receives no key. Asking a
@@ -203,27 +203,10 @@ export function renderPlayground(opts: {
       <button id="stop" class="secondary hide">Stop</button>
     </div>
 
-    <details id="load-test" style="margin-top:.9rem">
-      <summary class="small muted" style="cursor:pointer">Load testing</summary>
-      <div style="margin-top:.7rem">
-        <p class="tiny muted" style="margin:0 0 .6rem">
-          Calls endpoints at random, repeatedly, to exercise the paid path under
-          load. It keeps paying until the spend limit is reached or the balance
-          can no longer cover the cheapest endpoint — so with no limit set it
-          will spend the whole USDC balance of the connected wallet.
-        </p>
-        <div class="row">
-          <label class="tiny muted" for="cap">spend&nbsp;limit&nbsp;$</label>
-          <input id="cap" type="number" min="0" step="0.01" placeholder="no limit"
-                 style="width:7rem" inputmode="decimal">
-          <button id="run-exhaust" class="secondary small" disabled>Start load test</button>
-        </div>
-      </div>
-    </details>
     <div id="run-status" class="small hide" style="margin:.7rem 0 0; color: var(--accent); font-weight: 600"></div>
     <p class="tiny muted" style="margin:.7rem 0 0">
       Payments are signed in batches, so a run asks for one wallet approval per batch
-      rather than one per call. Runs stop on the first refusal.
+      rather than one per call. Each endpoint runs at most once; runs stop on the first refusal.
     </p>
   </div>
 
