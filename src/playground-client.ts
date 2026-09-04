@@ -55,6 +55,7 @@ let cancelled = false;   // user pressed Stop
  * state is what makes them stay on screen.
  */
 const results = new Map();
+const bodyDrafts = new Map();
 
 /**
  * Algorand's minimum balance requirement, in ALGO.
@@ -415,12 +416,26 @@ function renderEndpoints() {
 
   // A rebuild throws away anything typed into the request bodies, so carry the
   // current text over — otherwise editing a body and running it resets the box.
-  const edited = new Map();
   for (const ta of document.querySelectorAll("[data-body]")) {
-    edited.set(ta.getAttribute("data-body"), ta.value);
+    bodyDrafts.set(ta.getAttribute("data-body"), ta.value);
   }
 
-  $("endpoints").innerHTML = catalog.map((e) => {
+  const query = String($("endpoint-search")?.value || "").trim().toLowerCase();
+  const filter = $("endpoint-filter")?.value || "all";
+  const visible = catalog.filter((e) => {
+    const matchesQuery = !query || [e.name, e.title, e.path, e.description]
+      .some((value) => String(value || "").toLowerCase().includes(query));
+    const matchesFilter = filter === "all" ||
+      (filter === "free" && !isPaid(e)) || (filter === "paid" && isPaid(e)) || e.method === filter;
+    return matchesQuery && matchesFilter;
+  });
+
+  if (!visible.length) {
+    $("endpoints").innerHTML = "<div class='empty-state'>No endpoints match this view.</div>";
+    return;
+  }
+
+  $("endpoints").innerHTML = visible.map((e) => {
     const affordableNow =
       !isPaid(e) || (balances && round6(balances.usdc) >= round6(e.priceUsd));
     // Only paid endpoints need a wallet. A free route is the whole point of
@@ -440,7 +455,7 @@ function renderEndpoints() {
       "<div class='ep-desc'>" + escapeHtml(truncate(e.description, 220)) + "</div>" +
       (e.sampleBody !== undefined
         ? "<div class='ep-body'><textarea data-body='" + escapeHtml(e.name) + "' spellcheck='false'>" +
-          escapeHtml(edited.has(e.name) ? edited.get(e.name) : JSON.stringify(e.sampleBody, null, 2)) +
+          escapeHtml(bodyDrafts.has(e.name) ? bodyDrafts.get(e.name) : JSON.stringify(e.sampleBody, null, 2)) +
           "</textarea></div>"
         : "") +
       "<div class='row'>" +
@@ -989,6 +1004,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 $("run-all").onclick = runAll;
 $("run-exhaust").onclick = runExhaust;
+$("endpoint-search").oninput = renderEndpoints;
+$("endpoint-filter").onchange = renderEndpoints;
 
 // ---------------------------------------------------------------------------
 // Start

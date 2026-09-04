@@ -24,15 +24,7 @@
  * an inline module that pulls its dependencies from esm.sh.
  */
 import { PLAYGROUND_SCRIPT } from "./playground-client";
-
-const FAVICON =
-  "data:image/svg+xml," +
-  encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">' +
-      '<rect width="32" height="32" rx="7" fill="#00806a"/>' +
-      '<path d="M9 22 L16 9 L23 22" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
-      "</svg>",
-  );
+import { BRAND_FAVICON, BRAND_LOGO } from "./brand";
 
 /**
  * Shared visual language with the landing page.
@@ -42,84 +34,20 @@ const FAVICON =
  * ships no static assets.
  */
 const STYLES = `
-  :root {
-    --bg: #ffffff; --fg: #16161a; --muted: #5c5c6b; --line: #e4e4ec;
-    --card: #fafafc; --accent: #00806a; --code: #f2f2f7;
-    --ok: #0a7d32; --warn: #9a6700; --err: #b42318;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0b0b0f; --fg: #ececf1; --muted: #9a9aab; --line: #26262f;
-      --card: #131319; --accent: #00d3a7; --code: #1b1b23;
-      --ok: #3fb950; --warn: #d29922; --err: #f85149;
-    }
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--bg); color: var(--fg);
-    font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    -webkit-font-smoothing: antialiased;
-  }
-  .wrap { max-width: 940px; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
-  h1 { font-size: clamp(1.7rem, 4.5vw, 2.3rem); line-height: 1.15; margin: 0 0 .6rem; letter-spacing: -.02em; }
-  h2 { font-size: 1.1rem; margin: 2.5rem 0 .9rem; letter-spacing: -.01em; }
-  p { margin: 0 0 1rem; }
-  .lede { font-size: 1.05rem; color: var(--muted); max-width: 64ch; }
-  .badge {
-    display: inline-block; font-size: .75rem; font-weight: 600; letter-spacing: .04em;
-    text-transform: uppercase; color: var(--accent); border: 1px solid var(--accent);
-    border-radius: 999px; padding: .2rem .6rem; margin-bottom: 1rem;
-  }
-  a { color: var(--accent); }
-  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code); padding: .1rem .35rem; border-radius: 4px; font-size: .9em; }
-  button {
-    font: inherit; font-size: .9rem; font-weight: 600; cursor: pointer;
-    background: var(--accent); color: #fff; border: 0; border-radius: 8px;
-    padding: .5rem 1rem; transition: opacity .15s;
-  }
-  button:hover:not(:disabled) { opacity: .85; }
-  button:disabled { opacity: .4; cursor: not-allowed; }
-  button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
-  button.small { font-size: .8rem; padding: .35rem .7rem; }
-  select {
-    font: inherit; font-size: .8rem; background: var(--bg); color: var(--fg);
-    border: 1px solid var(--line); border-radius: 7px; padding: .35rem .5rem;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; max-width: 100%;
-  }
-  input[type=text], input[type=number], textarea {
-    font: inherit; font-size: .85rem; background: var(--bg); color: var(--fg);
-    border: 1px solid var(--line); border-radius: 7px; padding: .45rem .6rem; width: 100%;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  }
-  textarea { resize: vertical; min-height: 4.5rem; }
-  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 1.1rem 1.25rem; margin-bottom: 1rem; }
-  .row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
-  .spread { justify-content: space-between; }
-  .grow { flex: 1 1 auto; min-width: 0; }
-  .muted { color: var(--muted); }
-  .small { font-size: .85rem; }
-  .tiny { font-size: .78rem; }
-  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
-  .stat { display: flex; gap: 1.5rem; flex-wrap: wrap; font-size: .85rem; }
-  .stat b { font-weight: 600; display: block; color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .03em; }
-  .ep { border: 1px solid var(--line); border-radius: 10px; padding: .9rem 1rem; margin-bottom: .6rem; background: var(--card); }
-  .ep-head { display: flex; flex-wrap: wrap; gap: .5rem; align-items: baseline; justify-content: space-between; }
-  .ep-name { font-weight: 600; }
-  .ep-route { font-size: .8rem; }
-  .method { color: var(--accent); font-weight: 700; }
-  .price { font-size: .8rem; font-weight: 600; color: var(--muted); white-space: nowrap; }
-  .price.free { color: var(--accent); }
-  .ep-desc { color: var(--muted); font-size: .85rem; margin: .4rem 0 .6rem; }
-  .ep-body { margin: .5rem 0; }
-  .out { margin-top: .6rem; border-top: 1px solid var(--line); padding-top: .6rem; font-size: .82rem; }
-  pre { background: var(--code); border: 1px solid var(--line); border-radius: 8px; padding: .7rem .8rem; overflow-x: auto; font-size: .8rem; margin: .4rem 0 0; max-height: 20rem; }
-  .ok { color: var(--ok); } .warn { color: var(--warn); } .err { color: var(--err); }
-  .log { font-size: .82rem; max-height: 26rem; overflow-y: auto; }
-  .log-row { display: flex; gap: .6rem; padding: .3rem 0; border-bottom: 1px solid var(--line); align-items: baseline; }
-  .log-row:last-child { border-bottom: 0; }
-  .log-name { font-weight: 600; min-width: 8.5rem; }
-  .hide { display: none; }
-  .note { border-left: 3px solid var(--accent); padding: .5rem .8rem; background: var(--card); font-size: .85rem; margin: 0 0 1rem; }
+  :root{color-scheme:dark;--bg:#07100f;--surface:#0d1816;--surface-2:#11211e;--fg:#f2f8f6;--muted:#91a7a1;--line:rgba(184,232,220,.14);--line-strong:rgba(184,232,220,.24);--accent:#25d8b4;--accent-2:#85f5d9;--code:#081310;--ok:#57e0a2;--warn:#f0bd65;--err:#ff7d78;--sans:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"SFMono-Regular",Consolas,"Liberation Mono",monospace}
+  *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 var(--sans);-webkit-font-smoothing:antialiased}body:before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(650px 370px at 12% 0%,rgba(37,216,180,.11),transparent 72%),radial-gradient(520px 400px at 92% 12%,rgba(66,100,255,.07),transparent 75%)}
+  a{color:inherit;text-decoration:none}.shell{width:min(1240px,calc(100% - 40px));margin:0 auto}.nav{height:72px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}.brand{display:flex;align-items:center;gap:11px;font-weight:760;letter-spacing:-.02em}.brand-mark{display:inline-flex;width:30px;height:30px;color:#00806a;filter:drop-shadow(0 7px 16px rgba(0,128,106,.3))}.brand-mark svg{width:100%;height:100%}.nav-right{display:flex;align-items:center;gap:22px;color:var(--muted);font-size:12px;font-weight:650}.nav-right a:hover{color:var(--fg)}.network{display:flex;align-items:center;gap:8px;color:#b3c4c0}.network:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 5px rgba(37,216,180,.09)}
+  .hero{padding:66px 0 38px;display:flex;justify-content:space-between;gap:50px;align-items:end}.eyebrow{font:700 10px var(--mono);text-transform:uppercase;letter-spacing:.12em;color:var(--accent)}h1{font-size:clamp(2.6rem,5.2vw,4.7rem);line-height:1;letter-spacing:-.06em;margin:16px 0 18px}.lede{font-size:16px;color:var(--muted);max-width:650px;margin:0}.security-pill{max-width:305px;border:1px solid var(--line);border-radius:13px;padding:15px 17px;background:rgba(13,24,22,.75);color:var(--muted);font-size:11px}.security-pill strong{display:block;color:#c5d6d2;margin-bottom:3px;font-size:12px}.security-pill i{color:var(--accent);font-style:normal}
+  .prep{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:0 0 25px}.prep-card{border:1px solid var(--line);border-radius:12px;padding:15px 17px;background:rgba(13,24,22,.58);display:flex;gap:12px;align-items:start}.prep-num{display:grid;place-items:center;flex:0 0 25px;height:25px;border-radius:7px;background:rgba(37,216,180,.1);color:var(--accent);font:700 10px var(--mono)}.prep-card strong{display:block;font-size:12px;margin-bottom:2px}.prep-card span{color:var(--muted);font-size:10px;line-height:1.45;display:block}
+  .workspace{display:grid;grid-template-columns:330px minmax(0,1fr);gap:17px;align-items:start}.sidebar{position:sticky;top:18px}.panel{background:linear-gradient(145deg,rgba(17,33,30,.82),rgba(10,20,18,.9));border:1px solid var(--line);border-radius:15px;padding:20px;margin-bottom:13px;box-shadow:0 18px 48px rgba(0,0,0,.12)}.panel-label{font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:#6f8b84;margin-bottom:16px;display:block}.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.spread{justify-content:space-between}.grow{flex:1 1 auto;min-width:0}.muted{color:var(--muted)}.small{font-size:12px}.tiny{font-size:10px}.mono{font-family:var(--mono);overflow-wrap:anywhere}
+  button{font:700 12px var(--sans);cursor:pointer;min-height:39px;padding:0 14px;border:0;border-radius:9px;color:#042019;background:linear-gradient(135deg,var(--accent-2),var(--accent));box-shadow:0 8px 22px rgba(37,216,180,.1);transition:transform .16s,opacity .16s,border-color .16s}button:hover:not(:disabled){transform:translateY(-1px)}button:disabled{opacity:.35;cursor:not-allowed;box-shadow:none}button.secondary{color:#b9ccc7;background:rgba(255,255,255,.02);border:1px solid var(--line-strong);box-shadow:none}button.secondary:hover:not(:disabled){border-color:rgba(133,245,217,.4)}button.small{min-height:34px;padding:0 12px;font-size:11px}
+  select,input[type=text],input[type=number],textarea{width:100%;color:#dce8e5;background:#081310;border:1px solid var(--line);border-radius:8px;padding:9px 10px;font:11px/1.5 var(--mono);outline:none;transition:border-color .16s,box-shadow .16s}select:focus,input:focus,textarea:focus{border-color:rgba(37,216,180,.55);box-shadow:0 0 0 3px rgba(37,216,180,.08)}select{max-width:100%}textarea{resize:vertical;min-height:94px}.stat{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;font-size:12px}.stat>div{background:rgba(3,11,9,.42);border:1px solid var(--line);border-radius:9px;padding:10px}.stat b{display:block;color:#67837c;font:700 9px var(--mono);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px}
+  #wallet-warn{border:1px solid currentColor;border-radius:9px;padding:10px 11px;line-height:1.45}#runner-panel button{width:100%}#runner-panel .row{width:100%}#run-all-cost{display:block;margin:7px 0 0;text-align:center}#stop{margin-top:8px}details#load-test{border-top:1px solid var(--line);padding-top:14px;margin-top:17px!important}details#load-test summary{cursor:pointer;font-weight:700;color:#7f9992;list-style:none}details#load-test summary:after{content:" +";color:var(--accent)}details#load-test[open] summary:after{content:" −"}#cap{width:100%!important}.run-note{font-size:10px;color:#6f8882;line-height:1.5;margin:13px 0 0}
+  .catalog-head{display:flex;justify-content:space-between;align-items:end;gap:30px;margin:2px 0 16px}.catalog-head h2{font-size:23px;letter-spacing:-.035em;margin:0}.catalog-head p{font-size:11px;color:var(--muted);margin:0}.endpoint-count{font:700 10px var(--mono);color:var(--accent);text-transform:uppercase;letter-spacing:.08em}.catalog-tools{display:grid;grid-template-columns:1fr 155px;gap:8px;margin-bottom:10px}.catalog-tools input,.catalog-tools select{height:39px}.endpoint-grid{display:grid}.empty-state{padding:34px;border:1px dashed var(--line-strong);border-radius:13px;text-align:center;color:var(--muted);font-size:12px}.ep{position:relative;border:1px solid var(--line);border-radius:13px;padding:19px 20px;margin-bottom:10px;background:linear-gradient(145deg,rgba(15,29,26,.7),rgba(9,18,16,.82));transition:border-color .18s,transform .18s}.ep:hover{border-color:rgba(133,245,217,.28);transform:translateY(-1px)}.ep-head{display:flex;gap:13px;align-items:center;justify-content:space-between}.ep-name{font-weight:720;letter-spacing:-.01em}.ep-route{font-size:10px;margin-top:6px;color:#6f8982}.method{color:var(--accent);font-weight:800}.price{font:700 10px var(--mono);color:#bdcfca;white-space:nowrap;border:1px solid var(--line);padding:3px 8px;border-radius:999px}.price.free{color:var(--accent-2);border-color:rgba(37,216,180,.28);background:rgba(37,216,180,.06)}.ep-desc{color:#879f99;font-size:11px;line-height:1.55;margin:13px 0}.ep-body{margin:13px 0}.ep .row{border-top:1px solid var(--line);padding-top:13px;margin-top:12px}.ep .row button{min-width:112px}.out{margin-top:14px;border-top:1px solid var(--line);padding-top:13px;font-size:11px}.out>div:first-child{font-weight:700}.out pre{margin-top:10px}
+  pre{background:#050c0a;border:1px solid var(--line);border-radius:9px;padding:13px;overflow:auto;font:10px/1.6 var(--mono);max-height:310px}.ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--err)}.log{font-size:11px;max-height:380px;overflow-y:auto}.log-row{display:grid;grid-template-columns:16px minmax(100px,.7fr) auto 1.3fr;gap:8px;padding:9px 0;border-bottom:1px solid var(--line);align-items:start}.log-row:last-child{border:0}.log-name{font-weight:700}.hide{display:none!important}.footer{display:flex;justify-content:space-between;gap:20px;border-top:1px solid var(--line);padding:28px 0 46px;margin-top:60px;color:#6f8882;font-size:11px}.footer a:hover{color:var(--accent)}
+  @media(max-width:880px){.hero{align-items:start}.security-pill{display:none}.workspace{grid-template-columns:1fr}.sidebar{position:static;display:grid;grid-template-columns:1fr 1fr;gap:12px}.sidebar .panel{margin:0}.prep{grid-template-columns:1fr}.ep-desc{font-size:12px}}
+  @media(max-width:620px){.shell{width:min(100% - 24px,1240px)}.nav{height:64px}.nav-right a{display:none}.hero{padding:48px 0 30px}.hero h1{font-size:clamp(2.65rem,14vw,3.8rem)}.lede{font-size:14px}.sidebar{grid-template-columns:1fr}.panel{padding:17px}.catalog-head p{display:none}.catalog-tools{grid-template-columns:1fr}.ep{padding:17px}.ep-head{align-items:start}.log-row{grid-template-columns:14px 1fr}.log-row>*:nth-child(n+3){grid-column:2}.footer{display:block}.footer span{display:block;margin-top:6px}}
+  @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}button,.ep{transition:none}}
 `;
 
 /**
@@ -148,101 +76,84 @@ export function renderPlayground(opts: {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AgentHub Playground</title>
 <meta name="description" content="Run AgentHub's paid x402 endpoints from the browser with an Algorand wallet.">
-<link rel="icon" href="${FAVICON}">
+<link rel="icon" href="${BRAND_FAVICON}">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 
 <style>${STYLES}</style>
 </head>
 <body>
-<main class="wrap">
-  <span class="badge">x402 · ${opts.isMainnet ? "Algorand mainnet" : "Algorand testnet"}</span>
-  <h1>Playground</h1>
-  <p class="lede">
-    Connect an Algorand wallet and call any AgentHub endpoint. Each paid call settles
-    in USDC over x402 — no account, no API key. Your wallet signs every payment;
-    this page never sees a private key.
-  </p>
+<header class="shell nav">
+  <a class="brand" href="/">${BRAND_LOGO}<span>AgentHub</span></a>
+  <div class="nav-right"><span class="network">${opts.isMainnet ? "Mainnet live" : "Testnet"}</span><a href="/">API catalog</a><a href="/llms.txt">llms.txt</a></div>
+</header>
 
-  <p class="note">
-    <strong>Algorand USDC only.</strong> Payments are Algorand transactions carrying
-    ASA ${opts.usdcAsaId}. USDC held on Base, Ethereum, or another chain cannot pay
-    for these calls — bridge it to Algorand first (Circle CCTP).
-  </p>
+<main class="shell">
+  <section class="hero">
+    <div><span class="eyebrow">Interactive workbench</span><h1>Agent playground.</h1><p class="lede">Run production tools against real inputs. Free requests work instantly; connect Pera to settle paid calls in Algorand USDC via x402.</p></div>
+    <div class="security-pill"><strong><i>●</i> Your keys stay in your wallet</strong>Pera signs each payment. AgentHub never sees a seed phrase or private key.</div>
+  </section>
 
-  <p class="note">
-    <strong>What your wallet needs.</strong> USDC for the calls, and about 0.25 ALGO —
-    Algorand locks 0.1 to hold an account and 0.1 more to hold USDC. That ALGO is locked,
-    not spent: network fees for these payments are covered by the facilitator, so your
-    ALGO balance does not go down as you call endpoints.
-  </p>
+  <section class="prep" aria-label="Wallet requirements">
+    <div class="prep-card"><span class="prep-num">01</span><div><strong>Algorand USDC</strong><span>ASA ${opts.usdcAsaId}; USDC on other chains cannot settle these calls.</span></div></div>
+    <div class="prep-card"><span class="prep-num">02</span><div><strong>About 0.25 ALGO</strong><span>Held for account and asset minimums—not consumed as AgentHub fees.</span></div></div>
+    <div class="prep-card"><span class="prep-num">03</span><div><strong>One wallet approval</strong><span>Multi-tool runs batch payment signatures to reduce interruptions.</span></div></div>
+  </section>
 
-  <div class="panel" id="wallet-panel">
-    <div class="row spread">
-      <div class="grow">
-        <div id="wallet-status" class="small muted">Not connected.</div>
-        <div id="wallet-addr" class="mono tiny muted hide"></div>
-        <div id="account-picker" class="hide" style="margin-top:.5rem">
-          <label class="tiny muted" for="account-select">Paying from</label>
-          <select id="account-select" class="mono"></select>
+  <section class="workspace">
+    <aside class="sidebar">
+      <div class="panel" id="wallet-panel">
+        <span class="panel-label">01 / Wallet</span>
+        <div class="grow">
+          <div id="wallet-status" class="small muted">Not connected.</div>
+          <div id="wallet-addr" class="mono tiny muted hide" style="margin-top:4px"></div>
+          <div id="account-picker" class="hide" style="margin-top:12px">
+            <label class="tiny muted" for="account-select">Paying from</label>
+            <select id="account-select" class="mono" style="margin-top:5px"></select>
+          </div>
         </div>
+        <div class="row" style="margin-top:16px">
+          <button id="connect">Connect Pera wallet</button>
+          <button id="disconnect" class="secondary hide">Disconnect</button>
+        </div>
+        <div id="wallet-stats" class="stat hide" style="margin-top:14px"></div>
+        <div id="wallet-warn" class="small hide" style="margin-top:10px"></div>
       </div>
-      <div class="row">
-        <button id="connect">Connect wallet</button>
-        <button id="disconnect" class="secondary hide">Disconnect</button>
-      </div>
-    </div>
-    <div id="wallet-stats" class="stat hide" style="margin-top:.9rem"></div>
-    <div id="wallet-warn" class="small hide" style="margin-top:.6rem"></div>
-  </div>
 
-  <div class="panel" id="runner-panel">
-    <div class="row spread">
-      <div class="row">
-        <button id="run-all" class="secondary" disabled>Try all endpoints</button>
+      <div class="panel" id="runner-panel">
+        <span class="panel-label">02 / Batch runner</span>
+        <button id="run-all" class="secondary" disabled>Run every affordable tool</button>
         <span id="run-all-cost" class="tiny muted"></span>
+        <button id="stop" class="secondary hide">Stop current run</button>
+
+        <details id="load-test">
+          <summary class="small muted">Advanced load testing</summary>
+          <div style="margin-top:11px">
+            <p class="tiny muted" style="margin:0 0 10px">Repeatedly calls random paid endpoints until the limit or wallet balance is reached. Set a cap before starting.</p>
+            <label class="tiny muted" for="cap">Maximum spend in USDC</label>
+            <input id="cap" type="number" min="0" step="0.01" placeholder="Optional — empty uses balance" inputmode="decimal" style="margin:5px 0 8px">
+            <button id="run-exhaust" class="secondary small" disabled>Start load test</button>
+          </div>
+        </details>
+        <div id="run-status" class="small hide" style="margin-top:12px;color:var(--accent);font-weight:700"></div>
+        <p class="run-note">Runs stop on the first refusal. Individual endpoint buttons remain available below.</p>
       </div>
-      <button id="stop" class="secondary hide">Stop</button>
-    </div>
+    </aside>
 
-    <details id="load-test" style="margin-top:.9rem">
-      <summary class="small muted" style="cursor:pointer">Load testing</summary>
-      <div style="margin-top:.7rem">
-        <p class="tiny muted" style="margin:0 0 .6rem">
-          Calls endpoints at random, repeatedly, to exercise the paid path under
-          load. It keeps paying until the spend limit is reached or the balance
-          can no longer cover the cheapest endpoint — so with no limit set it
-          will spend the whole USDC balance of the connected wallet.
-        </p>
-        <div class="row">
-          <label class="tiny muted" for="cap">spend&nbsp;limit&nbsp;$</label>
-          <input id="cap" type="number" min="0" step="0.01" placeholder="no limit"
-                 style="width:7rem" inputmode="decimal">
-          <button id="run-exhaust" class="secondary small" disabled>Start load test</button>
-        </div>
+    <div class="main-workbench">
+      <div id="log-panel" class="panel hide">
+        <div class="row spread" style="margin-bottom:10px"><span class="panel-label" style="margin:0">Live run log</span><button id="clear-log" class="secondary small">Clear</button></div>
+        <div id="log" class="log"></div>
+        <div id="log-summary" class="small" style="margin-top:10px"></div>
       </div>
-    </details>
-    <div id="run-status" class="small hide" style="margin:.7rem 0 0; color: var(--accent); font-weight: 600"></div>
-    <p class="tiny muted" style="margin:.7rem 0 0">
-      Payments are signed in batches, so a run asks for one wallet approval per batch
-      rather than one per call. Runs stop on the first refusal.
-    </p>
-  </div>
 
-  <div id="log-panel" class="panel hide">
-    <div class="row spread" style="margin-bottom:.5rem">
-      <strong class="small">Run log</strong>
-      <button id="clear-log" class="secondary small">Clear</button>
+      <div class="catalog-head"><div><span class="endpoint-count">03 / ${opts.isMainnet ? "Production" : "Test"} catalog</span><h2>Choose an endpoint</h2></div><p>Edit JSON inputs before running.<br>Results stay attached to each tool.</p></div>
+      <div class="catalog-tools"><input id="endpoint-search" type="text" placeholder="Search tools, routes, and capabilities…" aria-label="Search endpoints"><select id="endpoint-filter" aria-label="Filter endpoints"><option value="all">All tools</option><option value="free">Free only</option><option value="paid">Paid only</option><option value="GET">GET</option><option value="POST">POST</option></select></div>
+      <div id="endpoints" class="endpoint-grid"><p class="muted small">Loading the live catalog…</p></div>
     </div>
-    <div id="log" class="log"></div>
-    <div id="log-summary" class="small" style="margin-top:.7rem"></div>
-  </div>
-
-  <h2>Endpoints</h2>
-  <div id="endpoints"><p class="muted small">Loading catalog…</p></div>
-
-  <p class="small muted" style="margin-top:2.5rem">
-    <a href="/">Back to the catalog</a>.
-  </p>
+  </section>
 </main>
+
+<footer class="shell footer"><a href="/">← Back to AgentHub</a><span>x402 payments · Algorand ${opts.isMainnet ? "mainnet" : "testnet"} · USDC ASA ${opts.usdcAsaId}</span></footer>
 
 <script type="module">
 window.AGENTHUB_CONFIG = ${config};
