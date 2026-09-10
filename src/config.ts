@@ -32,9 +32,18 @@ export const ALGOD_URL =
   process.env.ALGOD_URL?.replace(/\/$/, "") ||
   (isMainnet ? ALGOD_MAINNET_URL : ALGOD_TESTNET_URL);
 
-// Anthropic key is NOT required to boot the server (only /api/inference and
-// /api/summarize need it). Handlers fail loudly (502) when it is missing.
+// Anthropic key is NOT required to boot the server. Handlers fail loudly (502)
+// when it is missing.
 export const HAS_ANTHROPIC_KEY = !!process.env.ANTHROPIC_API_KEY;
+
+// Set DISABLE_LLM_ENDPOINTS=true to withdraw the four LLM-backed routes.
+//
+// They fail only after the payment has settled, so an exhausted or missing
+// Anthropic quota means callers are charged and then handed a 502. Withdrawing
+// them from the payment config removes them from the catalog and returns 404,
+// which costs the caller nothing. Unset it to bring them back.
+export const LLM_ENDPOINTS_ENABLED =
+  process.env.DISABLE_LLM_ENDPOINTS?.toLowerCase() !== "true" && HAS_ANTHROPIC_KEY;
 
 // Composite Entry rule: every route in this whole app must share this ONE payTo
 // address and ONE root domain. Never split this across endpoints.
