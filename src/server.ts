@@ -14,7 +14,6 @@ import {
   PORT,
   CHALLENGE_TAG,
   HAS_ANTHROPIC_KEY,
-  LLM_ENDPOINTS_ENABLED,
   PUBLIC_BASE_URL,
   IS_MAINNET,
   ALGOD_URL,
@@ -964,34 +963,13 @@ app.use((req, res, next) => {
   next();
 });
 
-const LLM_ROUTES = [
-  "POST /api/inference",
-  "POST /api/summarize",
-  "POST /api/nl-to-sql",
-  "POST /api/code-review",
-];
-
-// The LLM routes fail after payment settles, so when the upstream is
-// unavailable they are withdrawn rather than left to charge for a 502.
-const servedRoutes = LLM_ENDPOINTS_ENABLED
-  ? routes
-  : Object.fromEntries(Object.entries(routes).filter(([key]) => !LLM_ROUTES.includes(key)));
-
-app.use(paymentMiddleware(servedRoutes as typeof routes, server));
+app.use(paymentMiddleware(routes, server));
 
 // ---------------------------------------------------------------------------
 // Route handlers
 // ---------------------------------------------------------------------------
 
-const llmUnavailable = (res: any) =>
-  res.status(503).json({
-    error: "This endpoint is temporarily unavailable",
-    detail: "LLM-backed endpoints are withdrawn while upstream capacity is unavailable. No payment was taken.",
-    charged: false,
-  });
-
 app.post("/api/inference", async (req, res) => {
-  if (!LLM_ENDPOINTS_ENABLED) return llmUnavailable(res);
   const { prompt } = req.body || {};
   if (!prompt || typeof prompt !== "string") {
     return res.status(400).json({ error: "Missing 'prompt' string in request body." });
@@ -1009,7 +987,6 @@ app.post("/api/inference", async (req, res) => {
 });
 
 app.post("/api/summarize", async (req, res) => {
-  if (!LLM_ENDPOINTS_ENABLED) return llmUnavailable(res);
   const { text, maxWords, style } = req.body || {};
   if (!text || typeof text !== "string") {
     return res.status(400).json({ error: "Missing 'text' string in request body." });
@@ -1122,7 +1099,6 @@ app.get("/api/app-risk/:appId", async (req, res) => {
 });
 
 app.post("/api/nl-to-sql", async (req, res) => {
-  if (!LLM_ENDPOINTS_ENABLED) return llmUnavailable(res);
   const { question, schema, dialect } = req.body || {};
   try {
     const result = await nlToSql({ question, schema, dialect });
@@ -1139,7 +1115,6 @@ app.post("/api/nl-to-sql", async (req, res) => {
 });
 
 app.post("/api/code-review", async (req, res) => {
-  if (!LLM_ENDPOINTS_ENABLED) return llmUnavailable(res);
   const { owner, repo, pull, focus } = req.body || {};
   try {
     const result = await reviewPullRequest({ owner, repo, pull, focus });
@@ -1291,7 +1266,7 @@ function publicOrigin(req: express.Request): string {
 // ---------------------------------------------------------------------------
 app.get("/", (req, res) => {
   if (req.accepts(["html", "json"]) === "html") {
-    return res.type("html").send(renderLandingPage(publicOrigin(req), LLM_ENDPOINTS_ENABLED));
+    return res.type("html").send(renderLandingPage(publicOrigin(req)));
   }
   res.json({
     name: "AgentHub",
@@ -1318,11 +1293,11 @@ app.get("/playground", (_req, res) => {
 });
 
 app.get("/api/catalog", (_req, res) => {
-  res.json({ endpoints: buildCatalog(servedRoutes as typeof routes, TOOLS) });
+  res.json({ endpoints: buildCatalog(routes, TOOLS) });
 });
 
 app.get("/llms.txt", (req, res) => {
-  res.type("text/plain").send(renderLlmsTxt(publicOrigin(req), LLM_ENDPOINTS_ENABLED));
+  res.type("text/plain").send(renderLlmsTxt(publicOrigin(req)));
 });
 
 app.get("/api/health", (_req, res) => {

@@ -371,25 +371,11 @@ export const TOOLS: ToolListing[] = [
   },
 ];
 
-/** Paths of the LLM-backed tools, hidden when the upstream is unavailable. */
-const LLM_TOOL_PATHS = [
-  "/api/inference",
-  "/api/summarize",
-  "/api/nl-to-sql",
-  "/api/code-review",
-];
-
-/** The tools currently on offer. */
-export function activeTools(llmEnabled: boolean): ToolListing[] {
-  return llmEnabled ? TOOLS : TOOLS.filter((t) => !LLM_TOOL_PATHS.includes(t.path));
-}
-
-export function renderLandingPage(baseUrl?: string, llmEnabled = true): string {
+export function renderLandingPage(baseUrl?: string): string {
   // The copy-paste MCP example is only useful with a real host in it.
   const origin = (baseUrl || PUBLIC_BASE_URL || "https://YOUR_DOMAIN").replace(/\/$/, "");
-  const shown = activeTools(llmEnabled);
-  const headliner = shown.find((t) => t.headline) ?? shown[0];
-  const cards = shown.map(
+  const headliner = TOOLS.find((t) => t.headline) ?? TOOLS[0];
+  const cards = TOOLS.map(
     (t) => `      <article class="tool">
         <div class="tool-head">
           <code class="route"><span class="method">${t.method}</span> ${escapeHtml(t.path)}</code>
@@ -471,8 +457,8 @@ export function renderLandingPage(baseUrl?: string, llmEnabled = true): string {
     <span class="badge">x402 · Algorand mainnet</span>
     <h1>Pay-per-call tools your agent can use</h1>
     <p class="lede">
-      ${countWord(shown.length)} HTTP APIs for agents working on Algorand${
-        shown.some((t) => t.free)
+      ${countWord(TOOLS.length)} HTTP APIs for agents working on Algorand${
+        TOOLS.some((t) => t.free)
           ? ", one of them free to call"
           : ""
       }. No signup, no API key,
@@ -520,8 +506,8 @@ make_http_request_with_x402 "${escapeHtml(origin + headliner.path.replace(/\{(\w
 </html>`;
 }
 
-export function renderLlmsTxt(baseUrl: string, llmEnabled = true): string {
-  const tools = activeTools(llmEnabled).map(
+export function renderLlmsTxt(baseUrl: string): string {
+  const tools = TOOLS.map(
     (t) => `### ${t.name} — ${t.free ? "FREE, no payment required" : `${t.price} per call`}
 
 - Endpoint: ${t.method} ${baseUrl}${t.path}
