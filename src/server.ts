@@ -14,6 +14,8 @@ import {
   PORT,
   CHALLENGE_TAG,
   HAS_ANTHROPIC_KEY,
+  ANTHROPIC_TOOLS_ENABLED,
+  ANTHROPIC_TOOLS_AVAILABLE,
   PUBLIC_BASE_URL,
   IS_MAINNET,
   ALGOD_URL,
@@ -756,6 +758,39 @@ export const routes = {
   }
 };
 
+/** Anthropic-backed routes can be taken offline without affecting core tools. */
+export const ANTHROPIC_ROUTE_KEYS = [
+  "POST /api/inference",
+  "POST /api/summarize",
+  "POST /api/nl-to-sql",
+  "POST /api/code-review",
+] as const;
+
+const anthropicRouteKeys = new Set<string>(ANTHROPIC_ROUTE_KEYS);
+const anthropicToolNames = ["inference", "summarize", "nl-to-sql", "code-review"] as const;
+const anthropicUnavailableReason = !ANTHROPIC_TOOLS_ENABLED
+  ? "Anthropic-backed tools are temporarily disabled by the operator."
+  : !HAS_ANTHROPIC_KEY
+    ? "Anthropic-backed tools are unavailable because the upstream API key is not configured."
+    : undefined;
+
+/** Only these routes reach x402 middleware and can emit a payment quote. */
+export const payableRoutes = Object.fromEntries(
+  Object.entries(routes).filter(
+    ([key]) => ANTHROPIC_TOOLS_AVAILABLE || !anthropicRouteKeys.has(key),
+  ),
+);
+
+const catalogAvailability = Object.fromEntries(
+  anthropicToolNames.map((name) => [
+    name,
+    {
+      available: ANTHROPIC_TOOLS_AVAILABLE,
+      ...(anthropicUnavailableReason ? { reason: anthropicUnavailableReason } : {}),
+    },
+  ]),
+);
+
 // ---------------------------------------------------------------------------
 // Pre-payment request validation.
 //
@@ -773,6 +808,23 @@ export const routes = {
 // after payment cannot be reversed here. That makes it worth catching
 // everything cheaply detectable up front.
 // ---------------------------------------------------------------------------
+// Availability is checked before x402. Even a client carrying a stale payment
+// header gets an uncharged 503 rather than a settlement followed by an error.
+app.use((req, res, next) => {
+  if (
+    !ANTHROPIC_TOOLS_AVAILABLE &&
+    anthropicRouteKeys.has(`${req.method.toUpperCase()} ${req.path}`)
+  ) {
+    return res.status(503).json({
+      error: "Tool temporarily unavailable",
+      detail: anthropicUnavailableReason,
+      available: false,
+      charged: false,
+    });
+  }
+  next();
+});
+
 app.use((req, res, next) => {
   // Only vet the request when payment was actually attempted.
   //
@@ -791,7 +843,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(paymentMiddleware(routes, server));
+app.use(paymentMiddleware(payableRoutes, server));
 
 // ---------------------------------------------------------------------------
 // Route handlers
@@ -1108,7 +1160,8 @@ app.get("/", (req, res) => {
   res.json({
     name: "AgentHub",
     description: "x402-powered marketplace of paid tools for AI agents on Algorand",
-    endpoints: Object.keys(routes),
+    endpoints: Object.keys(payableRoutes),
+    unavailableEndpoints: ANTHROPIC_TOOLS_AVAILABLE ? [] : [...ANTHROPIC_ROUTE_KEYS],
     llmsTxt: "/llms.txt",
   });
 });
@@ -1130,7 +1183,7 @@ app.get("/playground", (_req, res) => {
 });
 
 app.get("/api/catalog", (_req, res) => {
-  res.json({ endpoints: buildCatalog(routes, TOOLS) });
+  res.json({ endpoints: buildCatalog(routes, TOOLS, catalogAvailability) });
 });
 
 // Directories and crawlers fetch /favicon.ico directly rather than reading the
@@ -1177,14 +1230,30 @@ app.get("/api/health", async (_req, res) => {
     dependencyHealth(FACILITATOR_URL),
   ]);
   const operational = indexer.ok && facilitator.ok;
+  const status = !operational ? "degraded" : ANTHROPIC_TOOLS_AVAILABLE ? "ok" : "partial";
   const payload = {
-    status: operational ? "ok" : "degraded",
+    status,
     network: NETWORK,
     dependencies: {
       indexer,
       facilitator,
-      anthropic: { configured: HAS_ANTHROPIC_KEY },
+      anthropic: {
+        configured: HAS_ANTHROPIC_KEY,
+        enabled: ANTHROPIC_TOOLS_ENABLED,
+        available: ANTHROPIC_TOOLS_AVAILABLE,
+        ...(anthropicUnavailableReason ? { reason: anthropicUnavailableReason } : {}),
+      },
       github: { authenticated: Boolean(process.env.GITHUB_TOKEN) },
+    },
+    tools: {
+      deterministic: {
+        available: true,
+        count: TOOLS.filter((tool) => tool.deterministic).length,
+      },
+      anthropic: {
+        available: ANTHROPIC_TOOLS_AVAILABLE,
+        endpoints: [...ANTHROPIC_ROUTE_KEYS],
+      },
     },
     checkedAt: new Date().toISOString(),
   };
@@ -1205,7 +1274,9 @@ if (require.main === module) app.listen(PORT, () => {
         "Set X402_NETWORK=mainnet for production.",
     );
   }
-  if (!HAS_ANTHROPIC_KEY) {
-    console.warn("⚠  ANTHROPIC_API_KEY is not set — /api/inference and /api/summarize will return 502");
+  if (!ANTHROPIC_TOOLS_AVAILABLE) {
+    console.warn(
+      `⚠  ${anthropicUnavailableReason} The four Anthropic routes return 503 before payment.`,
+    );
   }
 });

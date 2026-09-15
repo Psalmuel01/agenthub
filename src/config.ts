@@ -32,9 +32,16 @@ export const ALGOD_URL =
   process.env.ALGOD_URL?.replace(/\/$/, "") ||
   (isMainnet ? ALGOD_MAINNET_URL : ALGOD_TESTNET_URL);
 
-// Anthropic key is NOT required to boot the server (only /api/inference and
-// /api/summarize need it). Handlers fail loudly (502) when it is missing.
+// Anthropic is optional. Its four tools are deliberately default-off so a
+// deployment never starts accepting x402 payments merely because a key happens
+// to be present. Set ANTHROPIC_TOOLS_ENABLED=true when the upstream budget is
+// ready; removing the key or turning the switch off makes those routes return
+// 503 before the payment middleware can quote or settle a payment.
 export const HAS_ANTHROPIC_KEY = !!process.env.ANTHROPIC_API_KEY;
+export const ANTHROPIC_TOOLS_ENABLED = ["1", "true", "yes", "on"].includes(
+  (process.env.ANTHROPIC_TOOLS_ENABLED || "false").trim().toLowerCase(),
+);
+export const ANTHROPIC_TOOLS_AVAILABLE = ANTHROPIC_TOOLS_ENABLED && HAS_ANTHROPIC_KEY;
 
 // Composite Entry rule: every route in this whole app must share this ONE payTo
 // address and ONE root domain. Never split this across endpoints.

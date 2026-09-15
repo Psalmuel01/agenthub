@@ -255,7 +255,8 @@ cp .env.example .env
 | `RECEIVER_ADDRESS` | yes | Algorand address receiving payment for every route. Opt it into USDC. Volume is attributed to this address — do not change it mid-competition. |
 | `FACILITATOR_URL` | yes | GoPlausible facilitator (`https://facilitator.goplausible.xyz`) |
 | `X402_NETWORK` | yes | `testnet` or `mainnet`. **Defaults to `testnet`** — the server logs a loud warning on testnet, because those settlements are not real. |
-| `ANTHROPIC_API_KEY` | LLM routes | Without it those four routes return 502 and a warning is logged at startup. The seven on-chain endpoints do not need it. |
+| `ANTHROPIC_TOOLS_ENABLED` | LLM routes | Defaults to `false`. Set `true` only when the Anthropic budget is ready. When disabled, all four LLM routes return `503` before x402 payment is quoted or settled. |
+| `ANTHROPIC_API_KEY` | LLM routes | Required together with `ANTHROPIC_TOOLS_ENABLED=true`. Without it, the four routes remain unavailable and uncharged. Deterministic tools continue running. |
 | `GITHUB_TOKEN` | recommended | `/api/code-review` only. Unauthenticated GitHub allows **60 requests/hour per IP**, shared across all callers — not enough for a paid endpoint. Any classic token with public-repo read raises it to 5,000/hour. |
 | `PUBLIC_BASE_URL` | no | Public HTTPS origin, used for absolute URLs in `/llms.txt`. Falls back to the request host. |
 | `INDEXER_URL` | no | Algorand indexer. Defaults to the public AlgoNode instance for the selected network. |

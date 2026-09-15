@@ -39,6 +39,15 @@ export interface CatalogEntry {
   sampleBody?: unknown;
   /** True for routes served without payment. */
   free: boolean;
+  /** Whether the server is currently accepting calls for this endpoint. */
+  available: boolean;
+  /** Present when an operator or dependency has taken the endpoint offline. */
+  unavailableReason?: string;
+}
+
+export interface CatalogAvailability {
+  available: boolean;
+  reason?: string;
 }
 
 /**
@@ -134,6 +143,7 @@ interface ToolLike {
 export function buildCatalog(
   routes: Record<string, RouteConfigEntry>,
   tools: ToolLike[],
+  availability: Record<string, CatalogAvailability> = {},
 ): CatalogEntry[] {
   const entries: CatalogEntry[] = [];
 
@@ -141,6 +151,7 @@ export function buildCatalog(
     const [method, routePath] = key.split(" ") as ["GET" | "POST", string];
     const name = nameFromPath(routePath);
     const tool = tools.find((t) => nameFromPath(t.path) === name);
+    const state = availability[name];
 
     entries.push({
       name,
@@ -153,6 +164,10 @@ export function buildCatalog(
         ? { sampleBody: sampleBodyFor(name, config.extensions?.bazaar?.info?.input?.body) }
         : {}),
       free: false,
+      available: state?.available ?? true,
+      ...(state && !state.available && state.reason
+        ? { unavailableReason: state.reason }
+        : {}),
     });
   }
 
@@ -171,6 +186,7 @@ export function buildCatalog(
       priceUsd: 0,
       description: tool.blurb,
       free: true,
+      available: true,
     });
   }
 

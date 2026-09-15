@@ -29,3 +29,32 @@ test("server catalog prices match the release contract", async () => {
     app: 0.10, "app-risk": 0.18, portfolio: 0,
   });
 });
+
+test("catalog marks disabled Anthropic tools unavailable without hiding them", () => {
+  const availability = Object.fromEntries(
+    ["inference", "summarize", "nl-to-sql", "code-review"].map((name) => [
+      name,
+      { available: false, reason: "temporarily disabled" },
+    ]),
+  );
+  const paidRoutes = {
+    "POST /api/inference": {
+      accepts: { price: "0.05" },
+      description: "inference",
+    },
+  };
+
+  const entry = buildCatalog(paidRoutes, TOOLS, availability).find(
+    (candidate) => candidate.name === "inference",
+  );
+  assert.deepEqual(
+    entry && {
+      available: entry.available,
+      unavailableReason: entry.unavailableReason,
+    },
+    {
+      available: false,
+      unavailableReason: "temporarily disabled",
+    },
+  );
+});
