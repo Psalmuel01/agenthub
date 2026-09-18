@@ -29,10 +29,10 @@
 import { isValidAlgorandAddress } from "@x402-avm/avm";
 import { INDEXER_URL, USDC_ASA_ID } from "../config";
 import { indexerFetch } from "./indexer-fetch";
+import { MICRO_ALGO } from "./chain";
 
 /** Max transactions to pull for the activity/counterparty signals. */
 const TX_LIMIT = 100;
-const MICRO_ALGO = 1_000_000;
 
 export class WalletRiskError extends Error {
   constructor(message: string) {
