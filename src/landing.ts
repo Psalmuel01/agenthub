@@ -8,7 +8,7 @@
  * rule: one payTo, one domain).
  */
 
-import { PAY_TO, USDC_ASA_ID, PUBLIC_BASE_URL } from "./config";
+import { PAY_TO, USDC_ASA_ID, PUBLIC_BASE_URL, CONTACT_EMAIL } from "./config";
 import { BRAND_FAVICON, BRAND_LOGO } from "./brand";
 
 /**
@@ -422,7 +422,7 @@ export function renderLandingPage(baseUrl?: string): string {
   .section-head{display:flex;align-items:end;justify-content:space-between;gap:30px;margin-bottom:30px}.kicker{color:var(--accent);font:700 11px var(--mono);letter-spacing:.1em;text-transform:uppercase}.section-head h2{font-size:clamp(2rem,4vw,3.2rem);line-height:1.08;letter-spacing:-.045em;margin:9px 0 0}.section-head p{color:var(--muted);max-width:500px;margin:0}
   .tools{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.tool{min-width:0;padding:23px;border:1px solid var(--line);border-radius:15px;background:linear-gradient(145deg,rgba(17,33,30,.68),rgba(10,20,18,.78));transition:transform .2s,border-color .2s,background .2s}.tool:hover{transform:translateY(-3px);border-color:rgba(133,245,217,.32);background:linear-gradient(145deg,rgba(20,41,36,.82),rgba(10,20,18,.9))}.tool.free-tool{border-color:rgba(37,216,180,.28);box-shadow:inset 0 0 45px rgba(37,216,180,.035)}.tool-topline{display:flex;align-items:center;gap:9px}.tool-index{font:11px var(--mono);color:#56736c}.tool-kind{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#78938c;font-weight:700;flex:1}.price{font:700 11px var(--mono);color:#c4d4d0;border:1px solid var(--line);border-radius:999px;padding:3px 8px}.price.free{color:var(--accent-2);border-color:rgba(37,216,180,.3);background:rgba(37,216,180,.07)}.tool h3{font-size:17px;letter-spacing:-.02em;margin:19px 0 8px}.tool p{font-size:13px;line-height:1.58;color:var(--muted);margin:0 0 18px;min-height:82px}.route{display:block;width:100%;font:10px/1.5 var(--mono);color:#91a7a1;background:var(--code);border:1px solid var(--line);border-radius:8px;padding:9px 10px;overflow-wrap:anywhere}.method{color:var(--accent);font-weight:800}.tool details{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}.tool summary{cursor:pointer;color:#809991;font-size:11px;font-weight:700;list-style:none}.tool summary:after{content:" +";color:var(--accent)}.tool details[open] summary:after{content:" −"}.tool dl{display:grid;grid-template-columns:43px 1fr;gap:8px;margin:13px 0 0;font-size:10px}.tool dt{color:#668079;text-transform:uppercase;font-weight:700}.tool dd{margin:0;min-width:0;overflow-wrap:anywhere}.tool dd code{font:10px/1.55 var(--mono);color:#96aaa5}
   .integration{display:grid;grid-template-columns:.8fr 1.2fr;gap:54px;align-items:center;margin:120px 0 96px;padding:56px;border:1px solid var(--line);border-radius:20px;background:linear-gradient(130deg,rgba(37,216,180,.07),rgba(17,33,30,.38) 45%,rgba(76,120,255,.04))}.integration h2{font-size:34px;line-height:1.12;letter-spacing:-.04em;margin:10px 0 17px}.integration p{color:var(--muted);margin:0}.code-block{background:#050b0a;border:1px solid var(--line);border-radius:13px;padding:20px;overflow:auto;color:#a7bbb6;font:11px/1.8 var(--mono);box-shadow:0 20px 45px rgba(0,0,0,.22)}.code-block code{white-space:pre}.code-accent{color:var(--accent-2)}
-  .meta{display:grid;grid-template-columns:1fr auto;gap:30px;align-items:center;border-top:1px solid var(--line);padding:34px 0 48px;color:#708a83;font-size:12px}.meta p{margin:0}.meta code{font:11px var(--mono);color:#9eb2ad;overflow-wrap:anywhere}.footer-links{display:flex;gap:20px;white-space:nowrap}.footer-links a:hover{color:var(--accent)}
+  .meta{display:grid;grid-template-columns:1fr auto;gap:30px;align-items:center;border-top:1px solid var(--line);padding:34px 0 48px;color:#708a83;font-size:12px}.meta p{margin:0}.meta-main{display:grid;gap:12px}.meta .policy{max-width:70ch;line-height:1.65;color:#5f7a74}.meta .policy strong{color:#8fa8a2}.meta .contact a{color:#9eb2ad;text-decoration:underline}.meta .contact a:hover{color:var(--accent)}.meta code{font:11px var(--mono);color:#9eb2ad;overflow-wrap:anywhere}.footer-links{display:flex;gap:20px;white-space:nowrap}.footer-links a:hover{color:var(--accent)}
   @media(max-width:900px){.hero{grid-template-columns:1fr;gap:48px;padding-top:70px}.terminal{transform:none;max-width:650px}.tools{grid-template-columns:repeat(2,1fr)}.metric-strip{grid-template-columns:repeat(2,1fr)}.metric:nth-child(2){border-right:0}.metric:nth-child(-n+2){border-bottom:1px solid var(--line)}.integration{grid-template-columns:1fr;padding:38px}.tool p{min-height:auto}}
   @media(max-width:620px){.shell{width:min(100% - 26px,1180px)}.nav{height:66px}.nav-links a:not(.button){display:none}.hero{padding:58px 0 52px}.hero h1{font-size:clamp(2.75rem,14vw,4rem)}.hero-actions .button{width:100%}.trust{gap:11px 18px}.terminal-body{padding:18px;font-size:10px;min-height:310px}.metric-strip{margin-bottom:80px}.metric{padding:19px}.metric strong{font-size:20px}.section-head{display:block}.section-head p{margin-top:14px}.tools{grid-template-columns:1fr}.integration{margin:82px 0 65px;padding:27px 21px}.integration h2{font-size:27px}.meta{grid-template-columns:1fr}.footer-links{white-space:normal;flex-wrap:wrap}}
   @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.tool,.button{transition:none}}
@@ -512,8 +512,12 @@ ${cards}
   </main>
 
   <footer class="shell meta">
-    <p>USDC ASA <code>${escapeHtml(USDC_ASA_ID)}</code> · Algorand mainnet · Pay-to <code>${escapeHtml(PAY_TO)}</code></p>
-    <div class="footer-links"><a href="/playground">Playground</a><a href="/api/catalog">API catalog</a><a href="/api/health">Status</a></div>
+    <div class="meta-main">
+      <p>USDC ASA <code>${escapeHtml(USDC_ASA_ID)}</code> · Algorand mainnet · Pay-to <code>${escapeHtml(PAY_TO)}</code></p>
+      <p class="policy"><strong>Acceptable use.</strong> AgentHub serves genuine agent and developer requests only. We do not generate, simulate, or inflate payment activity, and synthetic or automated traffic intended to manufacture settlement volume is prohibited — both against this service and by it. Load and integration testing belongs on Algorand testnet. Endpoints are provided as-is; on-chain data is sourced from public Algorand indexers and returned without warranty.</p>
+      <p class="contact">Contact: <a href="mailto:${escapeHtml(CONTACT_EMAIL)}">${escapeHtml(CONTACT_EMAIL)}</a> — for support, abuse reports, or security disclosure.</p>
+    </div>
+    <div class="footer-links"><a href="/playground">Playground</a><a href="/api/catalog">API catalog</a><a href="/api/health">Status</a><a href="mailto:${escapeHtml(CONTACT_EMAIL)}">Contact</a></div>
   </footer>
 </body>
 </html>`;
@@ -537,6 +541,16 @@ AgentHub is a marketplace of pay-per-call microservices for AI agents, built on 
 payment protocol and settling in USDC on Algorand mainnet. There are no accounts, no API
 keys, and no subscriptions: an agent attaches a micropayment to a standard HTTP request
 and receives a result. Payment is the authorization layer.
+
+## Acceptable use
+
+AgentHub serves genuine agent and developer requests only. This service does not
+generate, simulate, or inflate payment activity. Synthetic or automated traffic
+intended to manufacture settlement volume is prohibited, both against this service
+and by it; load and integration testing belongs on Algorand testnet. Endpoints are
+provided as-is, and on-chain data is sourced from public Algorand indexers and
+returned without warranty. Contact ${CONTACT_EMAIL} for support, abuse reports, or
+security disclosure.
 
 ## Try it in a browser
 

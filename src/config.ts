@@ -48,6 +48,10 @@ export const ANTHROPIC_TOOLS_AVAILABLE = ANTHROPIC_TOOLS_ENABLED && HAS_ANTHROPI
 export const PAY_TO = requireEnv("RECEIVER_ADDRESS");
 
 export const FACILITATOR_URL = requireEnv("FACILITATOR_URL");
+// Public contact address shown in the site footer and llms.txt, for support,
+// abuse reports, and security disclosure. Override with CONTACT_EMAIL.
+export const CONTACT_EMAIL = process.env.CONTACT_EMAIL || "dahunsisamuel1st@gmail.com";
+
 
 export const PORT = parseInt(process.env.PORT || "3000", 10);
 
