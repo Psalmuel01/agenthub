@@ -272,8 +272,8 @@ npm run build && npm start
 Drive the full x402 flow against a running server:
 
 ```bash
-npm run run-all -- --dry
-npm run run-all -- --yes --only=wallet-risk
+npm run smoke
+npm run smoke -- --yes --only=wallet-risk
 
 npm run test-client -- /api/wallet-risk/<ADDRESS>
 npm run test-client -- /api/asset-risk/<ASA_ID>
@@ -289,7 +289,7 @@ curl http://localhost:3000/api/portfolio/<ADDRESS>
 
 ### Competition-safe testing
 
-- Use `npm run run-all -- --dry` for routine production checks. It verifies the
+- Use `npm run smoke` for routine production checks. It verifies the
   402 challenges and quoted prices without settling payments.
 - Use testnet for load, soak, concurrency, retry, and multi-wallet testing.
 - A paid smoke test requires `--yes` and calls each selected endpoint at most

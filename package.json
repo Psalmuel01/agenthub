@@ -10,7 +10,7 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "test": "tsx --test test/*.test.ts",
     "test-client": "ts-node-dev --transpile-only scripts/test-client.ts",
-    "run-all": "ts-node-dev --transpile-only scripts/run-all.ts",
+    "smoke": "ts-node-dev --transpile-only scripts/smoke-endpoints.ts --dry",
     "optin-usdc": "ts-node-dev --transpile-only scripts/optin-usdc.ts",
     "use-client": "ts-node-dev --transpile-only scripts/use-client.ts"
   },

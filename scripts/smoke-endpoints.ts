@@ -6,9 +6,9 @@
  * compile cost is paid once instead of once per route.
  *
  * Usage:
- *   npm run run-all -- --yes         # every endpoint once, with payment
- *   npm run run-all -- --dry         # 402 quotes only, no payment, no spend
- *   npm run run-all -- --yes --only=asset-risk,portfolio
+ *   npm run smoke                    # 402 quotes only, no payment, no spend
+ *   npm run smoke -- --yes           # every endpoint once, with real payment
+ *   npm run smoke -- --yes --only=asset-risk,portfolio
  *
  * Paid runs spend real USDC on mainnet and require --yes. The runner makes at
  * most one call to each selected endpoint. Repeated/load modes are deliberately
@@ -550,7 +550,7 @@ async function main() {
       if (usdc === null) {
         throw new Error(
           `${payer} is not opted in to USDC (ASA ${USDC_ASA}), so no paid endpoint can settle.\n` +
-            "Run: npm run optin-usdc   (or: npm run run-all -- --dry for a free pass)",
+            "Run: npm run optin-usdc   (or: npm run smoke for a free pass)",
         );
       }
 

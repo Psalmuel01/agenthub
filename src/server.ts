@@ -1167,7 +1167,7 @@ app.get("/", (req, res) => {
 });
 
 // The machine-readable endpoint catalog, derived from the payment config above.
-// The browser playground and scripts/run-all.ts both read this, so adding a
+// The browser playground and scripts/smoke-endpoints.ts both read this, so adding a
 // route to `routes` publishes it everywhere without touching either client.
 // The browser playground: connect a wallet, run any endpoint. Same origin as
 // the API it calls, which keeps the x402 payment headers readable without CORS.

@@ -500,7 +500,7 @@ function makeHttpClient() {
 /**
  * Run one endpoint: request, pay if asked, return what happened.
  *
- * Mirrors scripts/run-all.ts, including the distinction that matters most: a
+ * Mirrors scripts/smoke-endpoints.ts, including the distinction that matters most: a
  * second 402 means the payment was REFUSED and nothing was charged, which is a
  * different situation from a post-payment failure where money moved and the
  * caller got nothing.

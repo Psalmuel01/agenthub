@@ -6,7 +6,7 @@
  *
  *   routes (server.ts)      price "0.03"    path /api/asset-risk/[asaId]
  *   TOOLS  (landing.ts)     price "$0.03"   path /api/asset-risk/{asaId}
- *   CALLS  (run-all.ts)     price 0.03      path /api/asset-risk/31566704
+ *   CALLS  (smoke-endpoints.ts)     price 0.03      path /api/asset-risk/31566704
  *
  * Adding an endpoint meant editing all three and keeping the prices in sync by
  * hand. This module derives one machine-readable catalog from the payment
